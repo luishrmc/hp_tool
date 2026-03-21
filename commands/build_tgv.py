@@ -14,6 +14,7 @@ from pathlib import Path
 from commands.base import Command
 
 from tgv.TeX2txt import convert_tex_to_hp_text
+from tgv.genBMP import DiagramOptimizer
 from tgv.genT49 import generate_t49
 
 
@@ -30,7 +31,6 @@ class BuildTGVCommand(Command):
         parser.add_argument("--gen-imgs", action="store_true", help="run BMP generation stage")
         parser.add_argument("--gen-text", action="store_true", help="run TeX-to-text stage")
         parser.add_argument("--gen-t49", action="store_true", help="run T49 generation stage")
-        parser.add_argument("--gen-all", action="store_true", help="run all TGV build stages")
 
     def run(self, args: argparse.Namespace) -> int:
         logging.info("build-tgv command selected")
@@ -48,7 +48,7 @@ class BuildTGVCommand(Command):
         selected_stages = self._resolve_selected_stages(args)
         if not selected_stages:
             logging.error(
-                "No build stage selected. Use one of --inject-vars, --gen-imgs, --gen-text, --gen-t49, or --gen-all."
+                "No build stage selected. Use one of --inject-vars, --gen-imgs, --gen-text or --gen-t49"
             )
             return 2
 
@@ -64,9 +64,7 @@ class BuildTGVCommand(Command):
         logging.debug("Resolved data path: %s", data_path)
 
         out_dir = target_dir / "HP"
-        if not out_dir.exists():
-            logging.info("HP output directory does not exist, creating: %s", out_dir)
-            out_dir.mkdir(parents=True, exist_ok=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
         logging.debug("Resolved HP output path: %s", out_dir)
         txt_path = out_dir / args.txt_file
         t49_path = txt_path.with_suffix(".T49")
@@ -79,13 +77,28 @@ class BuildTGVCommand(Command):
                 convert_tex_to_hp_text(tex_path, txt_path)
             if stage_name == "gen-t49":
                 generate_t49(txt_path, t49_path)
+            if stage_name == "gen-imgs":
+                img_src_path = target_dir / "img"
+                bmp_options_path = img_src_path / "bmp_options"
+                bmp_selected_path = img_src_path / "bmp_selected"
+                bmp_options_path.mkdir(parents=True, exist_ok=True)
+                bmp_selected_path.mkdir(parents=True, exist_ok=True)
+
+                if img_src_path.is_dir():
+                    supported_exts = {".png", ".jpg", ".jpeg", ".bmp"}
+                    optimizer = DiagramOptimizer()
+            
+                    for img_file in img_src_path.iterdir():
+                        if img_file.is_file() and img_file.suffix.lower() in supported_exts:
+                            specific_opt_dir = bmp_options_path / img_file.stem
+                            optimizer.process_diagram(
+                                input_path_str=str(img_file),
+                                output_dir_str=str(specific_opt_dir)
+                            )
         logging.info("[build-tgv completed]")
         return 0
 
     def _resolve_selected_stages(self, args: argparse.Namespace) -> list[str]:
-        if args.gen_all:
-            return ["inject-vars", "gen-imgs", "gen-text", "gen-t49"]
-
         stages: list[str] = []
         if args.inject_vars:
             stages.append("inject-vars")
