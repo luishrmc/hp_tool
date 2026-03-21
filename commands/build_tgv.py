@@ -1,4 +1,4 @@
-"""Stub build-tgv command.
+"""uild-tgv command.
 
 This command only validates the final CLI shape and logging flow.
 It does not perform real TGV generation yet.
@@ -13,6 +13,8 @@ from pathlib import Path
 
 from commands.base import Command
 
+from tgv.TeX2txt import convert_tex_to_hp_text
+
 
 class BuildTGVCommand(Command):
     name = "build-tgv"
@@ -21,17 +23,19 @@ class BuildTGVCommand(Command):
     def add_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("target_dir", help="Path to the project directory containing hp.tex and related assets")
         parser.add_argument("--tex-file", default="hp.tex", help="Main TeX input file name inside target_dir")
+        parser.add_argument("--txt-file", default="hp.txt", help="Output text file name for the converted TeX content")
         parser.add_argument("--data-file", default="4-data.tex", help="Optional TeX data file used for variable injection")
-        parser.add_argument("--inject-vars", action="store_true", help="Stub: run variable injection stage")
-        parser.add_argument("--gen-imgs", action="store_true", help="Stub: run BMP generation stage")
-        parser.add_argument("--gen-text", action="store_true", help="Stub: run TeX-to-text stage")
-        parser.add_argument("--gen-t49", action="store_true", help="Stub: run T49 generation stage")
-        parser.add_argument("--gen-all", action="store_true", help="Stub: run all TGV build stages")
+        parser.add_argument("--inject-vars", action="store_true", help="run variable injection stage")
+        parser.add_argument("--gen-imgs", action="store_true", help="run BMP generation stage")
+        parser.add_argument("--gen-text", action="store_true", help="run TeX-to-text stage")
+        parser.add_argument("--gen-t49", action="store_true", help="run T49 generation stage")
+        parser.add_argument("--gen-all", action="store_true", help="run all TGV build stages")
 
     def run(self, args: argparse.Namespace) -> int:
 
         logging.info("build-tgv command selected")
 
+        ## Validate and resolve paths
         target_dir = Path(args.target_dir).resolve()
         if not target_dir.is_dir():
             logging.error("Target directory does not exist: %s", target_dir)
@@ -58,13 +62,19 @@ class BuildTGVCommand(Command):
         logging.debug("Resolved data path: %s", data_path)
 
         hp_output_path = target_dir / "HP"
+        if not hp_output_path.exists():
+            logging.info("HP output directory does not exist, creating: %s", hp_output_path)
+            hp_output_path.mkdir(parents=True, exist_ok=True)
         logging.debug("Resolved HP output path: %s", hp_output_path)
+        txt_path = hp_output_path / args.txt_file
 
         logging.info("Selected TGV stages: %s", ", ".join(selected_stages))
         for stage_name in selected_stages:
-            logging.info("[STUB] Running stage: %s", stage_name)
+            logging.info("[Running stage: %s]", stage_name)
+            if stage_name == "gen-text":
+                convert_tex_to_hp_text(tex_path, txt_path)
 
-        logging.info("[STUB] build-tgv completed")
+        logging.info("[build-tgv completed]")
         return 0
 
     def _resolve_selected_stages(self, args: argparse.Namespace) -> list[str]:
