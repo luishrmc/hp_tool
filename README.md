@@ -31,3 +31,5 @@ hp_tool/
     ├── utils.py
     └── charmap.py
 ```
+
+python main.py --debug build-tgv /home/luis/me/hp50g/latex_model --gen-text
