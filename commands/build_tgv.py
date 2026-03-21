@@ -16,6 +16,7 @@ from commands.base import Command
 from tgv.TeX2txt import convert_tex_to_hp_text
 from tgv.genBMP import DiagramOptimizer
 from tgv.genT49 import generate_t49
+from tgv.injectVars import injectVars
 
 
 class BuildTGVCommand(Command):
@@ -58,11 +59,6 @@ class BuildTGVCommand(Command):
             return 3
         logging.debug("Resolved TeX path: %s", tex_path)
 
-        data_path = target_dir / args.data_file
-        if not self._check_existence(data_path, "Data file"):
-            logging.warning("Data file does not exist (will skip variable injection): %s", data_path)
-        logging.debug("Resolved data path: %s", data_path)
-
         out_dir = target_dir / "HP"
         out_dir.mkdir(parents=True, exist_ok=True)
         logging.debug("Resolved HP output path: %s", out_dir)
@@ -73,6 +69,14 @@ class BuildTGVCommand(Command):
         logging.info("Selected TGV stages: %s", ", ".join(selected_stages))
         for stage_name in selected_stages:
             logging.info("[Running stage: %s]", stage_name)
+            if stage_name == "inject-vars":
+                data_path = target_dir / args.data_file
+                if not self._check_existence(data_path, "Data file"):
+                    logging.warning("Data file does not exist (will skip variable injection): %s", data_path)
+                else:
+                    output_name = f"{tex_path.stem}_injected{tex_path.suffix}"
+                    injectVars(args.target_dir, args.tex_file, args.data_file, output_name)
+
             if stage_name == "gen-text":
                 convert_tex_to_hp_text(tex_path, txt_path)
             if stage_name == "gen-t49":
