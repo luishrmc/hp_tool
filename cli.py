@@ -6,10 +6,12 @@ import argparse
 
 from commands.base import Command
 from commands.build_tgv import BuildTGVCommand
+from commands.transfer import TransferCommand
 from utils.logging import setup_logging
 
 COMMANDS: list[Command] = [
     BuildTGVCommand(),
+    TransferCommand(),
 ]
 
 def build_parser() -> argparse.ArgumentParser:

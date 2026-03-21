@@ -84,7 +84,7 @@ class BuildTGVCommand(Command):
             if stage_name == "gen-imgs":
                 img_src_path = target_dir / "img"
                 bmp_options_path = img_src_path / "bmp_options"
-                bmp_selected_path = img_src_path / "bmp_selected"
+                bmp_selected_path = img_src_path / "bmp_images"
                 bmp_options_path.mkdir(parents=True, exist_ok=True)
                 bmp_selected_path.mkdir(parents=True, exist_ok=True)
 
