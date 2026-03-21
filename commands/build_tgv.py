@@ -14,6 +14,7 @@ from pathlib import Path
 from commands.base import Command
 
 from tgv.TeX2txt import convert_tex_to_hp_text
+from tgv.genT49 import generate_t49
 
 
 class BuildTGVCommand(Command):
@@ -32,16 +33,16 @@ class BuildTGVCommand(Command):
         parser.add_argument("--gen-all", action="store_true", help="run all TGV build stages")
 
     def run(self, args: argparse.Namespace) -> int:
-
         logging.info("build-tgv command selected")
 
-        ## Validate and resolve paths
+        ## Validate target directory
         target_dir = Path(args.target_dir).resolve()
         if not target_dir.is_dir():
             logging.error("Target directory does not exist: %s", target_dir)
             return 1
         logging.info("Target directory: %s", target_dir)
 
+        ## Validate arguments
         args_dict = vars(args)
         logging.debug("CLI arguments:\n%s", json.dumps(args_dict, indent=4))
         selected_stages = self._resolve_selected_stages(args)
@@ -51,6 +52,7 @@ class BuildTGVCommand(Command):
             )
             return 2
 
+        ## Validate input files and prepare output paths
         tex_path = target_dir / args.tex_file
         if not self._check_existence(tex_path, "TeX file"):
             return 3
@@ -61,19 +63,22 @@ class BuildTGVCommand(Command):
             logging.warning("Data file does not exist (will skip variable injection): %s", data_path)
         logging.debug("Resolved data path: %s", data_path)
 
-        hp_output_path = target_dir / "HP"
-        if not hp_output_path.exists():
-            logging.info("HP output directory does not exist, creating: %s", hp_output_path)
-            hp_output_path.mkdir(parents=True, exist_ok=True)
-        logging.debug("Resolved HP output path: %s", hp_output_path)
-        txt_path = hp_output_path / args.txt_file
+        out_dir = target_dir / "HP"
+        if not out_dir.exists():
+            logging.info("HP output directory does not exist, creating: %s", out_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+        logging.debug("Resolved HP output path: %s", out_dir)
+        txt_path = out_dir / args.txt_file
+        t49_path = txt_path.with_suffix(".T49")
 
+        ## Run selected stages
         logging.info("Selected TGV stages: %s", ", ".join(selected_stages))
         for stage_name in selected_stages:
             logging.info("[Running stage: %s]", stage_name)
             if stage_name == "gen-text":
                 convert_tex_to_hp_text(tex_path, txt_path)
-
+            if stage_name == "gen-t49":
+                generate_t49(txt_path, t49_path)
         logging.info("[build-tgv completed]")
         return 0
 

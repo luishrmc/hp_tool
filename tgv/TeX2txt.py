@@ -363,21 +363,3 @@ def convert_tex_to_hp_text(
     logging.info(f"Successfully converted {in_file.name} to {out_file.name}")
     logging.info(f"Extracted command definitions: {len(commands)}")
     logging.info(f"Emitted sequence blocks: {len(processed_blocks)}")
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Convert TeX into HP50g-friendly text.")
-    parser.add_argument("input_path", help="Input .tex file")
-    parser.add_argument("output_path", help="Output .txt file")
-    parser.add_argument("--bmp-selected-dir", default="img/bmp_images", help="Directory containing selected BMP files")
-    parser.add_argument("--max-cols", type=int, default=22, help="Maximum columns per wrapped line")
-    args = parser.parse_args()
-
-    convert_tex_to_hp_text(
-        input_path=args.input_path,
-        output_path=args.output_path,
-        bmp_selected_dir=args.bmp_selected_dir,
-        max_cols=args.max_cols,
-    )

@@ -33,3 +33,4 @@ hp_tool/
 ```
 
 python main.py --debug build-tgv /home/luis/me/hp50g/latex_model --gen-text
+python main.py --debug build-tgv /home/luis/me/hp50g/latex_model --txt-file lista1.txt --gen-t49
