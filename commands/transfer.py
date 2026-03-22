@@ -82,6 +82,15 @@ class TransferCommand(Command):
                 max_retries=args.retries,
             )
 
+            NEW_DIR_NAME = "OKDIR2"
+            logging.info(f"Creating directory '{NEW_DIR_NAME}' on the calculator...")
+            rpl_command = f"'{NEW_DIR_NAME}' CRDIR"
+            session.send_host_command(rpl_command)
+
+            logging.info(f"Moving to the DIR")
+            rpl_command = f"'{NEW_DIR_NAME}' EVAL"
+            session.send_host_command(rpl_command)
+
             for t49_path in t49_files:
                 logging.info("[Transferring: %s]", t49_path.name)
                 session.send_file(t49_path)

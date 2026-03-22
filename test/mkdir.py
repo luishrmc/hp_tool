@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -28,7 +29,7 @@ def main():
     # Update PORT to match your connection (e.g., "COM3" on Windows or "/dev/ttyUSB0" on Linux)
     PORT = "/dev/ttyUSB0" 
     BAUDRATE = 115200  # Default HP 50g baudrate
-    NEW_DIR_NAME = "MYTESTDIR"
+    NEW_DIR_NAME = "OKDIR"
     # ---------------------
 
     transport = SerialTransport(port=PORT, baudrate=BAUDRATE)
@@ -37,18 +38,20 @@ def main():
     try:
         print(f"Opening port {PORT}...")
         transport.open()
+        transport.flush_input()
         
         # 1. Initialize the Kermit session (Negotiation)
         print("Negotiating session parameters...")
-        session.send_init()
 
         # 2. Send the RPL command to create a directory
         # The HP 50g expects the command to be valid RPL.
         # Syntax: 'NAME' CRDIR
         print(f"Creating directory '{NEW_DIR_NAME}' on the calculator...")
         rpl_command = f"'{NEW_DIR_NAME}' CRDIR"
-        
-        # Using the existing host command functionality
+        session.send_host_command(rpl_command)
+
+        print(f"Moving to the DIR")
+        rpl_command = f"'{NEW_DIR_NAME}' EVAL"
         session.send_host_command(rpl_command)
         
         print(f"Successfully sent command to create '{NEW_DIR_NAME}'.")

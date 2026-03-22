@@ -47,6 +47,18 @@ class KermitSession:
         self.max_encoded_data = packet_size
         self.qbin: int | None = None
 
+    def _build_send_init_payload(self) -> bytes:
+            """Build the local send-init negotiation payload."""
+            return bytes([
+                self.packet_size + 32,
+                0x20,
+                0x20,
+                ord('#'),
+                0x0D + 32,
+                ord('#'),
+                QBIN_CHAR,
+            ])
+
     def send_init(self) -> KermitPacket:
         """Send the initial Kermit negotiation packet.
 
@@ -56,15 +68,7 @@ class KermitSession:
         Raises:
             SessionError: If the exchange fails after the retry budget.
         """
-        payload = bytes([
-            self.packet_size + 32,
-            0x20,
-            0x20,
-            ord('#'),
-            0x0D + 32,
-            ord('#'),
-            QBIN_CHAR,
-        ])
+        payload = self._build_send_init_payload()
         reply = self._send_and_expect(KermitPacket(self.seq, PKT_SEND_INIT, payload), PKT_ACK)
         self._parse_init_params(reply)
         return reply
@@ -85,6 +89,29 @@ class KermitSession:
         else:
             self.qbin = None
             logging.warning("8-bit quoting NOT agreed — high bytes will fail")
+
+    def _ack_packet(self, seq: int, data: bytes = b'') -> KermitPacket:
+            """Build an ACK packet for the given sequence."""
+            return KermitPacket(seq, PKT_ACK, data)
+
+    def _ack_remote_send_init(self, send_init_packet: KermitPacket) -> None:
+        """ACK a remote send-init packet using our local negotiation payload."""
+        ack = self._ack_packet(send_init_packet.seq, self._build_send_init_payload())
+        logging.debug(
+            "TX packet: seq=%d type=%s data_len=%d [ack remote send-init]",
+            ack.seq,
+            ack.pkt_type.decode("latin-1"),
+            len(ack.data),
+        )
+        self.transport.write(ack.encode())
+
+    def _next_seq(self) -> None:
+        """Advance the 6-bit packet sequence number."""
+        self.seq = (self.seq + 1) % 64
+
+    def _clean_seq(self) -> None:
+        """Reset the packet sequence number to zero."""
+        self.seq = 0
 
     def send_file(self, file_path: str | Path) -> None:
         """Send a single file across the active Kermit session.
@@ -208,14 +235,109 @@ class KermitSession:
 
         raise SessionError(f"Packet exchange failed after retries: {last_error}")
 
-    def _next_seq(self) -> None:
-        """Advance the 6-bit packet sequence number."""
-        self.seq = (self.seq + 1) % 64
-
     def send_host_command(self, command: str) -> KermitPacket:
-        """Send a Kermit host-command packet (experimental fallback)."""
+        """Send an RPL host command using a command-specific exchange.
+        
+        Host commands (Type 'C') are standalone Server transactions.
+        They do NOT require a Send-Init ('S') negotiation first.
+        """
+        self._clean_seq()
         payload = command.encode("ascii", errors="replace")
-        reply = self._send_and_expect(KermitPacket(self.seq, PKT_HOST_CMD, payload), PKT_ACK)
-        self._next_seq()
-        logging.debug("Host command executed: %s", command)
+
+        logging.info("Starting host command: %s", command)
+        
+        # Send the 'C' packet directly from the idle state.
+        reply = self._send_host_command_packet(
+            KermitPacket(self.seq, PKT_HOST_CMD, payload)
+        )
+        
+        self._clean_seq()
+        logging.info("Host command finished: %s", command)
+        
+        # We do not need a Break ('B') packet because no file transfer was initiated.
         return reply
+
+    def _sink_file_transfer(self) -> None:
+            """Consume and ACK an incoming file transfer from the calculator.
+
+            When the HP 50g executes a host command, it sends the result
+            back as a file transfer. We must drain and ACK this transfer so the
+            calculator knows the transaction is complete and stops retrying.
+            """
+            logging.info("Sinking incoming result transfer from calculator...")
+            while True:
+                raw = self.transport.read_packet()
+                if not raw:
+                    logging.warning("Timed out while sinking calculator response.")
+                    break
+
+                try:
+                    reply = KermitPacket.decode(raw)
+                except PacketError:
+                    continue
+
+                logging.debug(
+                    "RX packet: seq=%d type=%s data_len=%d [sink]",
+                    reply.seq,
+                    reply.pkt_type.decode("latin-1"),
+                    len(reply.data),
+                )
+
+                # Acknowledge whatever the calculator sent us
+                ack = self._ack_packet(reply.seq)
+                self.transport.write(ack.encode())
+
+                # Stop when we receive the Break ('B') packet or an Error ('E')
+                if reply.pkt_type == PKT_BREAK or reply.pkt_type == b'E':
+                    break
+
+    def _send_host_command_packet(self, packet: KermitPacket) -> KermitPacket:
+            """Send a host-command packet and accept valid command replies."""
+            last_error: Exception | None = None
+
+            for attempt in range(1, self.max_retries + 1):
+                logging.debug(
+                    "TX packet: seq=%d type=%s data_len=%d attempt=%d [host command]",
+                    packet.seq,
+                    packet.pkt_type.decode("latin-1"),
+                    len(packet.data),
+                    attempt,
+                )
+                self.transport.write(packet.encode())
+                raw = self.transport.read_packet()
+
+                if not raw:
+                    last_error = SessionError("Timed out waiting for host-command reply")
+                    continue
+
+                try:
+                    reply = KermitPacket.decode(raw)
+                except PacketError as exc:
+                    last_error = exc
+                    continue
+
+                logging.debug(
+                    "RX packet: seq=%d type=%s data_len=%d [host command]",
+                    reply.seq,
+                    reply.pkt_type.decode("latin-1"),
+                    len(reply.data),
+                )
+
+                if reply.pkt_type == PKT_ACK:
+                    return reply
+
+                if reply.pkt_type == PKT_SEND_INIT:
+                    self._parse_init_params(reply)
+                    self._ack_remote_send_init(reply)
+                    self._sink_file_transfer()
+                    return reply
+
+                if reply.pkt_type == PKT_NAK:
+                    last_error = SessionError(f"Received NAK for host command seq {packet.seq}")
+                    continue
+
+                last_error = SessionError(
+                    f"Unexpected host-command reply type {reply.pkt_type!r}"
+                )
+
+            raise SessionError(f"Host command failed after retries: {last_error}")
