@@ -31,6 +31,53 @@ class RPLCommandBuilder:
         """Build an RPL command that changes the current remote directory."""
         return RPLCommand(name="change_remote_dir", expression=f"'{path}' EVAL")
 
+    @staticmethod
+    def remove_dir(path: str, purge: bool = False) -> RPLCommand:
+        """Build an RPL command that removes a remote directory."""
+        if purge:
+            return RPLCommand(name="purge_dir", expression=f"'{path}' PGDIR")
+        return RPLCommand(name="remove_dir", expression=f"'{path}' RMDIR")
+
+    @staticmethod
+    def rename(old_path: str, new_path: str) -> RPLCommand:
+        """Build an RPL command that renames a file or directory."""
+        return RPLCommand(name="rename", expression=f"'{old_path}' '{new_path}' RENAME")
+
+    @staticmethod
+    def list_dir(path: str) -> RPLCommand:
+        """Build an RPL command that lists directory contents (evals the path and gets VARS)."""
+        # This switches to the path, gets variables, and returns the list of names
+        # Note: A real directory listing might need more complex RPL, but for now we do the basics.
+        # EVAL changes the dir, VARS gets the list of variables in the current dir.
+        # Alternatively, we just CD to the dir and return VARS.
+        return RPLCommand(name="list_dir", expression=f"'{path}' EVAL VARS")
+
+    @staticmethod
+    def remove_file(path: str) -> RPLCommand:
+        """Build an RPL command that removes a file or variable."""
+        return RPLCommand(name="remove_file", expression=f"'{path}' PURGE")
+
+    @staticmethod
+    def create_variable(name: str, value: str, folder: str | None = None) -> RPLCommand:
+        """Build an RPL command that creates a variable."""
+        base_expr = f"{value} '{name}' STO"
+        if folder:
+            return RPLCommand(name="create_variable", expression=f"'{folder}' EVAL {base_expr}")
+        return RPLCommand(name="create_variable", expression=base_expr)
+
+    @staticmethod
+    def create_equation(name: str, expression: str, folder: str | None = None) -> RPLCommand:
+        """Build an RPL command that creates an equation."""
+        base_expr = f"'{expression}' '{name}' STO"
+        if folder:
+            return RPLCommand(name="create_equation", expression=f"'{folder}' EVAL {base_expr}")
+        return RPLCommand(name="create_equation", expression=base_expr)
+
+    @staticmethod
+    def create_constant(name: str, value: str, folder: str | None = None) -> RPLCommand:
+        """Build an RPL command that creates a constant."""
+        return RPLCommandBuilder.create_variable(name, value, folder)
+
 
 class CalculatorClient:
     """Thin facade exposing higher-level calculator operations."""
