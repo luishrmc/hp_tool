@@ -120,6 +120,24 @@ def kermit_encode(data: bytes, qctl: int = ord('#'), qbin: int | None = None) ->
     return bytes(out)
 
 
+def kermit_decode(data: bytes, qctl: int = ord('#'), qbin: int | None = None) -> bytes:
+    """Decode a Kermit D-packet payload back to raw bytes."""
+    out = bytearray()
+    index = 0
+
+    while index < len(data):
+        current = data[index]
+        if qbin is not None and current == qbin:
+            low, index = _decode_low(data, index + 1, qctl=qctl, qbin=qbin)
+            out.append(low | 0x80)
+            continue
+
+        low, index = _decode_low(data, index, qctl=qctl, qbin=qbin)
+        out.append(low)
+
+    return bytes(out)
+
+
 def _encode_low(out: bytearray, c: int, qctl: int, qbin: int | None) -> None:
     """Append an encoded 7-bit byte to the output buffer."""
     if c < 0x20 or c == 0x7F:
@@ -133,3 +151,23 @@ def _encode_low(out: bytearray, c: int, qctl: int, qbin: int | None) -> None:
         out.append(qbin)
     else:
         out.append(c)
+
+
+def _decode_low(data: bytes, index: int, qctl: int, qbin: int | None) -> tuple[int, int]:
+    """Decode one logical 7-bit payload byte starting at ``index``."""
+    if index >= len(data):
+        raise PacketError("Quoted payload ended unexpectedly")
+
+    current = data[index]
+    if current != qctl:
+        return current, index + 1
+
+    if index + 1 >= len(data):
+        raise PacketError("Control-quoted payload ended unexpectedly")
+
+    quoted = data[index + 1]
+    if quoted == qctl:
+        return qctl, index + 2
+    if qbin is not None and quoted == qbin:
+        return qbin, index + 2
+    return quoted ^ 0x40, index + 2
