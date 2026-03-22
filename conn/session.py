@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from conn.packet import KermitPacket, kermit_encode_byte
+from conn.packet import KermitPacket, kermit_encode_byte, kermit_decode_data
 from conn.transport import SerialTransport
 from utils.constants import (
     DEFAULT_MAX_RETRIES,
@@ -235,11 +235,14 @@ class KermitSession:
 
         raise SessionError(f"Packet exchange failed after retries: {last_error}")
 
-    def send_host_command(self, command: str) -> KermitPacket:
+    def send_host_command(self, command: str) -> tuple[KermitPacket, bytes]:
         """Send an RPL host command using a command-specific exchange.
         
         Host commands (Type 'C') are standalone Server transactions.
         They do NOT require a Send-Init ('S') negotiation first.
+
+        Returns:
+            tuple[KermitPacket, bytes]: The reply packet and the accumulated payload.
         """
         self._clean_seq()
         payload = command.encode("ascii", errors="replace")
@@ -247,7 +250,7 @@ class KermitSession:
         logging.info("Starting host command: %s", command)
         
         # Send the 'C' packet directly from the idle state.
-        reply = self._send_host_command_packet(
+        reply, host_payload = self._send_host_command_packet(
             KermitPacket(self.seq, PKT_HOST_CMD, payload)
         )
         
@@ -255,16 +258,21 @@ class KermitSession:
         logging.info("Host command finished: %s", command)
         
         # We do not need a Break ('B') packet because no file transfer was initiated.
-        return reply
+        return reply, host_payload
 
-    def _sink_file_transfer(self) -> None:
+    def _sink_file_transfer(self) -> bytes:
             """Consume and ACK an incoming file transfer from the calculator.
 
             When the HP 50g executes a host command, it sends the result
             back as a file transfer. We must drain and ACK this transfer so the
             calculator knows the transaction is complete and stops retrying.
+
+            Returns:
+                bytes: The concatenated payload of all data packets.
             """
             logging.info("Sinking incoming result transfer from calculator...")
+            payload = bytearray()
+
             while True:
                 raw = self.transport.read_packet()
                 if not raw:
@@ -283,6 +291,9 @@ class KermitSession:
                     len(reply.data),
                 )
 
+                if reply.pkt_type == PKT_DATA:
+                    payload.extend(kermit_decode_data(reply.data, qctl=ord('#'), qbin=self.qbin))
+
                 # Acknowledge whatever the calculator sent us
                 ack = self._ack_packet(reply.seq)
                 self.transport.write(ack.encode())
@@ -291,7 +302,9 @@ class KermitSession:
                 if reply.pkt_type == PKT_BREAK or reply.pkt_type == b'E':
                     break
 
-    def _send_host_command_packet(self, packet: KermitPacket) -> KermitPacket:
+            return bytes(payload)
+
+    def _send_host_command_packet(self, packet: KermitPacket) -> tuple[KermitPacket, bytes]:
             """Send a host-command packet and accept valid command replies."""
             last_error: Exception | None = None
 
@@ -324,13 +337,13 @@ class KermitSession:
                 )
 
                 if reply.pkt_type == PKT_ACK:
-                    return reply
+                    return reply, b""
 
                 if reply.pkt_type == PKT_SEND_INIT:
                     self._parse_init_params(reply)
                     self._ack_remote_send_init(reply)
-                    self._sink_file_transfer()
-                    return reply
+                    payload = self._sink_file_transfer()
+                    return reply, payload
 
                 if reply.pkt_type == PKT_NAK:
                     last_error = SessionError(f"Received NAK for host command seq {packet.seq}")

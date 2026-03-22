@@ -71,11 +71,13 @@ class CalculatorFileSystem:
 
     def create_dir(self, path: str) -> KermitPacket:
         """Create a directory on the calculator."""
-        return self.client.run_rpl(RPLCommandBuilder.create_remote_dir(path))
+        reply, _ = self.client.run_rpl(RPLCommandBuilder.create_remote_dir(path))
+        return reply
 
     def remove_dir(self, path: str, purge: bool = False) -> KermitPacket:
         """Remove a directory, optionally purging non-empty contents first."""
-        return self.client.run_rpl(RPLCommandBuilder.remove_remote_dir(path, purge=purge))
+        reply, _ = self.client.run_rpl(RPLCommandBuilder.remove_remote_dir(path, purge=purge))
+        return reply
 
     def rename(self, old_path: str, new_path: str) -> KermitPacket:
         """Rename a remote object.
@@ -92,18 +94,31 @@ class CalculatorFileSystem:
         )
 
     def list_dir(self, path: str) -> list[RemoteEntry]:
-        """List directory contents.
+        """List directory contents."""
+        _, payload = self.client.run_rpl(RPLCommandBuilder.list_current_dir(folder=path))
 
-        The current session drains result transfers produced by host commands but
-        does not expose their payload back to callers. This method is kept as the
-        stable service entry point so a future session enhancement can populate
-        ``RemoteEntry`` instances without changing the API surface.
-        """
-        del path
-        raise NotImplementedError(
-            "Directory listing requires exposing host-command result payloads from "
-            "KermitSession before entries can be parsed here."
-        )
+        # The payload is an RPL list representation like `{ "A" "B" }`
+        content = payload.decode("latin-1", errors="replace").strip()
+
+        entries = []
+        if content.startswith("{") and content.endswith("}"):
+            # Strip outer brackets and split by spaces
+            # Handling quotes properly
+            inner = content[1:-1].strip()
+            import shlex
+            if inner:
+                try:
+                    names = shlex.split(inner)
+                    for name in names:
+                        entries.append(RemoteEntry(
+                            path=f"{path}/{name}".replace("//", "/"),
+                            name=name,
+                            entry_type="unknown"
+                        ))
+                except ValueError:
+                    pass
+
+        return entries
 
     def save_file(self, local_path: str | Path, remote_path: str) -> None:
         """Upload a local file to a remote folder using the existing transfer flow."""
@@ -118,25 +133,29 @@ class CalculatorFileSystem:
 
     def remove_file(self, path: str) -> KermitPacket:
         """Remove a file or variable-like object from the calculator."""
-        return self.client.run_rpl(RPLCommandBuilder.remove_remote_object(path))
+        reply, _ = self.client.run_rpl(RPLCommandBuilder.remove_remote_object(path))
+        return reply
 
     def create_variable(self, name: str, value: str, folder: str | None = None) -> KermitPacket:
         """Create a generic remote variable by storing an RPL value expression."""
         resolved_folder, resolved_name = self._resolve_name_and_folder(name, folder=folder)
-        return self.client.run_rpl(
+        reply, _ = self.client.run_rpl(
             RPLCommandBuilder.store_variable(resolved_name, value, folder=resolved_folder)
         )
+        return reply
 
     def create_equation(self, name: str, expression: str, folder: str | None = None) -> KermitPacket:
         """Create a remote equation object stored under the requested name."""
         resolved_folder, resolved_name = self._resolve_name_and_folder(name, folder=folder)
-        return self.client.run_rpl(
+        reply, _ = self.client.run_rpl(
             RPLCommandBuilder.store_equation(resolved_name, expression, folder=resolved_folder)
         )
+        return reply
 
     def create_constant(self, name: str, value: str, folder: str | None = None) -> KermitPacket:
         """Create a remote constant-like value stored under the requested name."""
         resolved_folder, resolved_name = self._resolve_name_and_folder(name, folder=folder)
-        return self.client.run_rpl(
+        reply, _ = self.client.run_rpl(
             RPLCommandBuilder.store_constant(resolved_name, value, folder=resolved_folder)
         )
+        return reply

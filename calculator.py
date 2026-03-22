@@ -99,18 +99,20 @@ class CalculatorClient:
         """Store the active session used for all calculator interactions."""
         self.session = session
 
-    def run_rpl(self, command: str | RPLCommand) -> KermitPacket:
+    def run_rpl(self, command: str | RPLCommand) -> tuple[KermitPacket, bytes]:
         """Execute a raw or prebuilt RPL command via Kermit Server."""
         expression = command.expression if isinstance(command, RPLCommand) else command
         return self.session.send_host_command(expression)
 
     def create_remote_dir(self, path: str) -> KermitPacket:
         """Create a directory on the calculator."""
-        return self.run_rpl(RPLCommandBuilder.create_remote_dir(path))
+        reply, _ = self.run_rpl(RPLCommandBuilder.create_remote_dir(path))
+        return reply
 
     def change_remote_dir(self, path: str) -> KermitPacket:
         """Change the current directory on the calculator."""
-        return self.run_rpl(RPLCommandBuilder.change_remote_dir(path))
+        reply, _ = self.run_rpl(RPLCommandBuilder.change_remote_dir(path))
+        return reply
 
     def upload_file(self, file_path: str | Path, remote_dir: str | None = None) -> None:
         """Upload one local file, optionally after switching remote directory."""

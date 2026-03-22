@@ -16,9 +16,9 @@ class FakeSession:
         self.host_commands: list[str] = []
         self.files: list[Path] = []
 
-    def send_host_command(self, command: str) -> str:
+    def send_host_command(self, command: str) -> tuple[str, bytes]:
         self.host_commands.append(command)
-        return command
+        return command, b""
 
     def send_file(self, file_path: str | Path) -> None:
         self.files.append(Path(file_path))
@@ -91,13 +91,24 @@ class CalculatorFileSystemTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             file_system.save_file("/tmp/example.T49", "/HOME/TEST/renamed.T49")
 
-    def test_list_dir_documents_current_session_gap(self) -> None:
-        session = FakeSession()
+    def test_list_dir_parses_rpl_list(self) -> None:
+        class FakeSessionListDir(FakeSession):
+            def send_host_command(self, command: str) -> tuple[str, bytes]:
+                self.host_commands.append(command)
+                return command, b'{ "A" "DIR1" }'
+
+        session = FakeSessionListDir()
         client = CalculatorClient(session)
         file_system = CalculatorFileSystem(client)
 
-        with self.assertRaises(NotImplementedError):
-            file_system.list_dir("/HOME")
+        entries = file_system.list_dir("/HOME")
+
+        self.assertEqual(session.host_commands, ["'/HOME' EVAL VARS"])
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0].name, "A")
+        self.assertEqual(entries[0].path, "/HOME/A")
+        self.assertEqual(entries[1].name, "DIR1")
+        self.assertEqual(entries[1].path, "/HOME/DIR1")
 
 
 if __name__ == "__main__":

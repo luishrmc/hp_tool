@@ -133,3 +133,50 @@ def _encode_low(out: bytearray, c: int, qctl: int, qbin: int | None) -> None:
         out.append(qbin)
     else:
         out.append(c)
+
+def kermit_decode_data(data: bytes, qctl: int = ord('#'), qbin: int | None = None) -> bytes:
+    """Decode a received D-packet payload back into raw bytes.
+
+    Args:
+        data: Encoded payload bytes.
+        qctl: Control-quote character.
+        qbin: Optional 8-bit quote character negotiated with the peer.
+
+    Returns:
+        bytes: Raw decoded payload.
+    """
+    out = bytearray()
+    i = 0
+    length = len(data)
+
+    while i < length:
+        byte = data[i]
+
+        high_bit = 0x00
+
+        # Check for 8-bit quote
+        if qbin is not None and byte == qbin:
+            i += 1
+            if i >= length:
+                break
+            high_bit = 0x80
+            byte = data[i]
+
+        # Check for control quote
+        if byte == qctl:
+            i += 1
+            if i >= length:
+                break
+            char = data[i]
+            if char == qctl:
+                out.append(char | high_bit)
+            elif qbin is not None and char == qbin:
+                out.append(char | high_bit)
+            else:
+                out.append((char ^ 0x40) | high_bit)
+        else:
+            out.append(byte | high_bit)
+
+        i += 1
+
+    return bytes(out)

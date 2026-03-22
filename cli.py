@@ -8,11 +8,13 @@ import logging
 from commands.base import Command, RunResult
 from commands.build_tgv import BuildTGVCommand
 from commands.transfer import TransferCommand
+from commands.gui import GUICommand
 from utils.logging import setup_logging
 
 COMMANDS: list[Command] = [
     BuildTGVCommand(),
     TransferCommand(),
+    GUICommand(),
 ]
 
 
