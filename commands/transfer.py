@@ -1,7 +1,4 @@
-"""transfer command.
-
-Transfer all .T49 files from a target directory to the calculator.
-"""
+"""transfer command implementation."""
 
 from __future__ import annotations
 
@@ -10,18 +7,24 @@ import json
 import logging
 from pathlib import Path
 
-from commands.base import Command
-
+from commands.base import Command, RunResult
 from conn.session import KermitSession
 from conn.transport import SerialTransport
 from utils.exceptions import HPConnError
 
 
 class TransferCommand(Command):
+    """Transfer built .T49 files from a project directory to the calculator."""
+
     name = "transfer"
     help = "Transfer all .T49 files from a project directory to the calculator"
 
     def add_args(self, parser: argparse.ArgumentParser) -> None:
+        """Register CLI arguments for the transfer subcommand.
+
+        Args:
+            parser: Parser dedicated to this subcommand.
+        """
         parser.add_argument("target_dir", help="Path to the project directory containing the HP output directory")
         parser.add_argument("port", help="Serial port, for example /dev/ttyUSB0")
         parser.add_argument("--baud", type=int, default=115200, help="Serial baud rate")
@@ -29,32 +32,39 @@ class TransferCommand(Command):
         parser.add_argument("--packet-size", type=int, default=80, help="Payload size for D packets")
         parser.add_argument("--retries", type=int, default=5, help="Maximum retries per packet")
 
-    def run(self, args: argparse.Namespace) -> int:
+    def run(self, args: argparse.Namespace) -> RunResult:
+        """Transfer every discovered .T49 file to the calculator.
+
+        Args:
+            args: Parsed CLI arguments for this command.
+
+        Returns:
+            RunResult: Structured outcome describing success or failure.
+        """
         logging.info("transfer command selected")
 
-        # Validate target directory
         target_dir = Path(args.target_dir).resolve()
         if not target_dir.is_dir():
-            logging.error("Target directory does not exist: %s", target_dir)
-            return 1
+            message = f"Target directory does not exist: {target_dir}"
+            logging.error(message)
+            return RunResult(ok=False, message=message)
         logging.info("Target directory: %s", target_dir)
 
-        # Validate arguments
         args_dict = vars(args)
         logging.debug("CLI arguments:\n%s", json.dumps(args_dict, indent=4))
 
-        # Resolve input directory containing .T49 files
         input_dir = target_dir / args.input_dir
         if not input_dir.is_dir():
-            logging.error("Input directory does not exist: %s", input_dir)
-            return 2
+            message = f"Input directory does not exist: {input_dir}"
+            logging.error(message)
+            return RunResult(ok=False, message=message)
         logging.debug("Resolved input directory: %s", input_dir)
 
-        # Find .T49 files
         t49_files = sorted(input_dir.glob("*.T49"))
         if not t49_files:
-            logging.error("No .T49 files found in: %s", input_dir)
-            return 3
+            message = f"No .T49 files found in: {input_dir}"
+            logging.error(message)
+            return RunResult(ok=False, message=message)
 
         logging.info("Found %d .T49 file(s) to transfer", len(t49_files))
         for path in t49_files:
@@ -77,10 +87,18 @@ class TransferCommand(Command):
                 session.send_file(t49_path)
 
             logging.info("[transfer completed]")
-            return 0
-
+            return RunResult(
+                ok=True,
+                message="transfer completed successfully",
+                data={
+                    "target_dir": str(target_dir),
+                    "input_dir": str(input_dir),
+                    "files": [path.name for path in t49_files],
+                },
+            )
         except HPConnError as exc:
-            logging.error("Transfer failed: %s", exc)
-            return 2
+            message = f"Transfer failed: {exc}"
+            logging.error(message)
+            return RunResult(ok=False, message=message)
         finally:
             transport.close()

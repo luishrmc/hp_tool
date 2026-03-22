@@ -5,8 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from conn.packet import KermitPacket
-from conn.packet import kermit_encode
+from conn.packet import KermitPacket, kermit_encode
 from conn.transport import SerialTransport
 from utils.constants import (
     DEFAULT_MAX_RETRIES,
@@ -19,17 +18,13 @@ from utils.constants import (
     PKT_NAK,
     PKT_SEND_INIT,
 )
-
 from utils.exceptions import PacketError, SessionError
 
-QBIN_CHAR = ord('&')  # 8-bit prefix character we propose
+QBIN_CHAR = ord('&')
+
 
 class KermitSession:
-    """Very small session driver for file sending.
-
-    The implementation is intentionally incomplete but structured so you can
-    evolve it incrementally while preserving the core architecture.
-    """
+    """Drive a minimal Kermit send session for one or more files."""
 
     def __init__(
         self,
@@ -37,43 +32,68 @@ class KermitSession:
         packet_size: int = DEFAULT_PACKET_DATA_SIZE,
         max_retries: int = DEFAULT_MAX_RETRIES,
     ) -> None:
+        """Initialize the session state.
+
+        Args:
+            transport: Serial transport used for raw packet I/O.
+            packet_size: Requested payload size for send-init negotiation.
+            max_retries: Maximum retries for each packet exchange.
+        """
         self.transport = transport
         self.packet_size = packet_size
         self.max_retries = max_retries
         self.seq = 0
+        self.max_encoded_data = packet_size
+        self.qbin: int | None = None
 
     def send_init(self) -> KermitPacket:
+        """Send the initial Kermit negotiation packet.
+
+        Returns:
+            KermitPacket: ACK packet returned by the remote peer.
+
+        Raises:
+            SessionError: If the exchange fails after the retry budget.
+        """
         payload = bytes([
-            self.packet_size + 32,  # MAXL
-            0x20,                   # TIME = 0
-            0x20,                   # NPAD = 0
-            ord('#'),               # PADC
-            0x0D + 32,              # EOL  = CR  ('-')
-            ord('#'),               # QCTL = '#'
-            QBIN_CHAR,              # QBIN = '&'  ← NEW: propose 8-bit quoting
+            self.packet_size + 32,
+            0x20,
+            0x20,
+            ord('#'),
+            0x0D + 32,
+            ord('#'),
+            QBIN_CHAR,
         ])
         reply = self._send_and_expect(KermitPacket(self.seq, PKT_SEND_INIT, payload), PKT_ACK)
-        self._parse_init_params(reply)   # ← extract negotiated values
+        self._parse_init_params(reply)
         return reply
 
     def _parse_init_params(self, y_packet: KermitPacket) -> None:
-        """Read MAXL and QBIN from the calculator's Y response."""
-        d = y_packet.data
-        # Field 1: MAXL — max packet size the calculator accepts
-        if len(d) >= 1:
-            remote_maxl = d[0] - 32
-            # Max encoded data = remote_maxl - 6 (SOH+LEN+SEQ+TYPE+CHKSUM+EOL overhead)
+        """Apply negotiated parameters from a send-init ACK.
+
+        Args:
+            y_packet: ACK packet returned by the remote peer.
+        """
+        data = y_packet.data
+        if len(data) >= 1:
+            remote_maxl = data[0] - 32
             self.max_encoded_data = remote_maxl - 6
-        # Field 7: QBIN — calculator mirrors our proposed char if it agrees
-        if len(d) >= 7 and d[6] not in (0x20, ord('N')):
-            self.qbin = d[6]   # agreed 8-bit prefix byte
+        if len(data) >= 7 and data[6] not in (0x20, ord('N')):
+            self.qbin = data[6]
             logging.debug("8-bit quoting negotiated: QBIN=0x%02X ('%s')", self.qbin, chr(self.qbin))
         else:
             self.qbin = None
             logging.warning("8-bit quoting NOT agreed — high bytes will fail")
 
-
     def send_file(self, file_path: str | Path) -> None:
+        """Send a single file across the active Kermit session.
+
+        Args:
+            file_path: Path to the file to send.
+
+        Raises:
+            SessionError: If packet negotiation or transfer fails.
+        """
         path = Path(file_path)
         data = path.read_bytes()
 
@@ -89,21 +109,35 @@ class KermitSession:
 
         offset = 0
         while offset < len(data):
-            # Build encoded chunk that fits within max_encoded_data
             chunk = self._build_chunk(data, offset)
-            logging.debug("Sending data chunk offset=%d raw_size=%d encoded_size=%d",
-                          offset, len(chunk['raw']), len(chunk['encoded']))
-            self._send_and_expect(KermitPacket(self.seq, PKT_DATA, chunk['encoded']), PKT_ACK)
-            offset += len(chunk['raw'])
+            logging.debug(
+                "Sending data chunk offset=%d raw_size=%d encoded_size=%d",
+                offset,
+                len(chunk["raw"]),
+                len(chunk["encoded"]),
+            )
+            self._send_and_expect(KermitPacket(self.seq, PKT_DATA, chunk["encoded"]), PKT_ACK)
+            offset += len(chunk["raw"])
             self._next_seq()
 
-        self._send_and_expect(KermitPacket(self.seq, PKT_EOF,   b''), PKT_ACK)
+        self._send_and_expect(KermitPacket(self.seq, PKT_EOF, b''), PKT_ACK)
         self._next_seq()
         self._send_and_expect(KermitPacket(self.seq, PKT_BREAK, b''), PKT_ACK)
         logging.info("File send finished")
 
-    def _build_chunk(self, data: bytes, offset: int) -> dict:
-        """Greedily consume raw bytes until the encoded size would exceed max_encoded_data."""
+    def _build_chunk(self, data: bytes, offset: int) -> dict[str, bytes]:
+        """Build the next encoded payload chunk that fits the negotiated size.
+
+        Args:
+            data: Full file contents.
+            offset: Starting byte offset for the next chunk.
+
+        Returns:
+            dict[str, bytes]: Raw and encoded payload slices for the next packet.
+
+        Raises:
+            SessionError: If even a single byte cannot fit in the negotiated size.
+        """
         raw = bytearray()
         for byte in data[offset:]:
             trial = bytes(raw) + bytes([byte])
@@ -111,14 +145,26 @@ class KermitSession:
             if len(encoded) > self.max_encoded_data:
                 break
             raw.append(byte)
-            if not raw:  # single byte expands too large — shouldn't happen with MAXL≥16
-                raise SessionError("Single byte encoded size exceeds MAXL")
-        encoded = kermit_encode(bytes(raw), qctl=ord('#'), qbin=self.qbin)
-        return {'raw': bytes(raw), 'encoded': encoded}
 
+        if not raw:
+            raise SessionError("Single byte encoded size exceeds negotiated MAXL")
+
+        encoded = kermit_encode(bytes(raw), qctl=ord('#'), qbin=self.qbin)
+        return {"raw": bytes(raw), "encoded": encoded}
 
     def _send_and_expect(self, packet: KermitPacket, expected_type: bytes) -> KermitPacket:
-        """Send one packet and wait for the expected response type."""
+        """Send a packet and wait for the expected response type.
+
+        Args:
+            packet: Packet to transmit.
+            expected_type: Packet type expected in the reply.
+
+        Returns:
+            KermitPacket: Decoded reply packet.
+
+        Raises:
+            SessionError: If retries are exhausted without the expected reply.
+        """
         last_error: Exception | None = None
 
         for attempt in range(1, self.max_retries + 1):

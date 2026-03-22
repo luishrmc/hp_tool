@@ -11,6 +11,7 @@ hp_tool/
 │   ├── transfer.py
 │   ├── build_tgv.py
 │   └── build_and_transfer.py
+│      <!-- TODO: missing -->
 ├── conn/
 │   ├── __init__.py
 │   ├── packet.py
@@ -18,10 +19,10 @@ hp_tool/
 │   └── transport.py           # sender.py only if Model B/C is decided
 ├── tgv/
 │   ├── __init__.py
-│   ├── latex2txt.py           # step 1: LaTeX → plain text
-│   ├── inject_vars.py         # step 2: variable injection
-│   ├── gen_t49.py             # step 3a: emit .T49 binary
-│   └── gen_bmp_model0.py      # step 3b: emit BMP variant
+│   ├── TeX2txt.py             # step 1: LaTeX → plain text
+│   ├── injectVars.py          # step 2: variable injection
+│   ├── genT49.py              # step 3a: emit .T49 binary
+│   └── genBMP.py              # step 3b: emit BMP variant
 │                              # builder.py only if pipeline logic is complex
 └── utils/
     ├── __init__.py
@@ -29,6 +30,7 @@ hp_tool/
     ├── exceptions.py
     ├── logging.py
     ├── utils.py
+    │  <!-- TODO: missing -->
     └── charmap.py
 ```
 
