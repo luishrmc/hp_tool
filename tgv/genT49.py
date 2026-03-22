@@ -16,6 +16,15 @@ POSTAMBLE = b"\x2b\x31\x20\xe9\x02\x4d\x01\x00\x3b\xdc\xb3\x12\x03"
 IMAGE_DIRECTIVE_RE = re.compile(r"\\image\{([^}]+)\}")
 
 
+def _is_within_directory(path: Path, root_dir: Path) -> bool:
+    """Return whether ``path`` stays within ``root_dir`` after resolution."""
+    try:
+        path.relative_to(root_dir)
+        return True
+    except ValueError:
+        return False
+
+
 def build_string_header(payload_len: int) -> bytes:
     """Build the HP string-object header for a payload.
 
@@ -91,16 +100,24 @@ def build_image_object(image_ref: str, base_dir: Path, bmp_selected_dir: str) ->
     Returns:
         bytes: Encoded GROB object bytes, or ``b''`` if the image cannot be loaded.
     """
+    allowed_dir = (base_dir / bmp_selected_dir).resolve()
     image_path = Path(image_ref)
-    if not image_path.is_absolute():
-        image_path = (base_dir / bmp_selected_dir / image_path).resolve()
+    if image_path.is_absolute():
+        image_path = image_path.resolve()
+    else:
+        image_path = (allowed_dir / image_path).resolve()
+
+    if not _is_within_directory(image_path, allowed_dir):
+        logging.error("Blocked image reference outside BMP directory: %s", image_path)
+        return b""
 
     if not image_path.exists():
         logging.error("Image not found: %s", image_path)
         return b""
 
     try:
-        img = Image.open(image_path).convert('1', dither=Image.Dither.NONE)
+        with Image.open(image_path) as source_image:
+            img = source_image.convert('1', dither=Image.Dither.NONE)
     except Exception as exc:  # noqa: BLE001
         logging.error("Failed to load image %s: %s", image_path, exc)
         return b""
