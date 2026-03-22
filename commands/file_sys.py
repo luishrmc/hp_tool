@@ -77,6 +77,22 @@ class CalculatorFileSystem:
             dest_path=validated_dest,
         )
 
+    def list_home(self) -> FileSystemResult:
+        """List entries starting from the calculator HOME directory."""
+        host_result = self.client.run_rpl(RPLCommandBuilder.list_home_dir())
+        return self._result_from_host("list_home", "/HOME", host_result)
+
+    def list_dir(self) -> FileSystemResult:
+        """List entries from the current calculator directory."""
+        host_result = self.client.run_rpl(RPLCommandBuilder.list_current_dir())
+        return self._result_from_host("list_dir", ".", host_result)
+
+    def cd_dir(self, path: str) -> FileSystemResult:
+        """Change from HOME to the requested calculator directory."""
+        validated_path = self._validate_create_dir_path(path)
+        host_result = self.client.run_rpl(RPLCommandBuilder.cd_remote_dir(validated_path))
+        return self._result_from_host("cd_dir", validated_path, host_result)
+
 
 class FileSystemCommand(Command):
     """CLI command exposing minimal remote directory operations."""
@@ -98,6 +114,9 @@ class FileSystemCommand(Command):
             metavar=("SRC_PATH", "DEST_PATH"),
             help="Rename or move a calculator directory within one parent folder",
         )
+        group.add_argument("--list-home", action="store_true", help="List entries starting from /HOME")
+        group.add_argument("--list-dir", action="store_true", help="List entries in the current calculator directory")
+        group.add_argument("--cd-dir", metavar="REMOTE_PATH", help="Change from HOME to the requested calculator directory")
 
     def run(self, args: argparse.Namespace) -> RunResult:
         """Execute remote directory creation."""
@@ -119,6 +138,12 @@ class FileSystemCommand(Command):
             elif getattr(args, "change_dir", None):
                 src_path, dest_path = args.change_dir
                 result = file_system.change_dir(src_path, dest_path)
+            elif getattr(args, "list_home", False):
+                result = file_system.list_home()
+            elif getattr(args, "list_dir", False):
+                result = file_system.list_dir()
+            elif getattr(args, "cd_dir", None):
+                result = file_system.cd_dir(args.cd_dir)
             else:
                 raise ValueError("No file-sys operation selected")
             return self._to_run_result(result)
@@ -134,10 +159,14 @@ class FileSystemCommand(Command):
         """Convert a minimal filesystem result into the shared CLI result shape."""
         if result.operation == "change_dir" and result.dest_path is not None:
             message = f"{result.operation} completed from {result.path} to {result.dest_path}"
+        elif result.operation in {"list_home", "list_dir"}:
+            message = f"{result.operation} completed for {result.path}"
         else:
             message = f"{result.operation} completed for {result.path}"
         if result.output_text.strip():
             message = f"{message}\n{result.output_text.strip()}"
+        elif result.operation in {"list_home", "list_dir"}:
+            message = f"{message}\n<no output>"
         return RunResult(
             ok=True,
             message=message,

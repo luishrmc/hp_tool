@@ -80,6 +80,27 @@ class RPLCommandBuilder:
         return RPLCommand(name="move_remote_dir", expression=expression)
 
     @classmethod
+    def list_home_dir(cls) -> RPLCommand:
+        """Build an RPL command that lists entries starting from HOME."""
+        return RPLCommand(name="list_home_dir", expression="HOME VARS")
+
+    @classmethod
+    def list_current_dir(cls) -> RPLCommand:
+        """Build an RPL command that lists entries in the current directory."""
+        return RPLCommand(name="list_current_dir", expression="VARS")
+
+    @classmethod
+    def cd_remote_dir(cls, path: str) -> RPLCommand:
+        """Build an RPL command that changes from HOME to the requested directory."""
+        segments = cls._folder_segments(path)
+        if not segments:
+            expression = "HOME"
+        else:
+            navigation = cls._navigation_from_segments(segments)
+            expression = f"HOME {navigation}"
+        return RPLCommand(name="cd_remote_dir", expression=expression)
+
+    @classmethod
     def change_remote_dir(cls, path: str) -> RPLCommand:
         """Build an RPL command that changes the current remote directory."""
         return RPLCommand(name="change_remote_dir", expression=f"{cls._quote_name(path)} EVAL")
