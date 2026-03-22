@@ -31,6 +31,8 @@ class TransferCommand(Command):
         parser.add_argument("--input-dir", default="HP", help="Relative directory inside target_dir where .T49 files are searched (default: HP)")
         parser.add_argument("--packet-size", type=int, default=80, help="Payload size for D packets")
         parser.add_argument("--retries", type=int, default=5, help="Maximum retries per packet")
+        parser.add_argument("--mkdir", action="store_true", help="Create the target directory on the calculator before transferring files")
+        parser.add_argument("--dir", help="Directory on the calculator where files will be transferred")
 
     def run(self, args: argparse.Namespace) -> RunResult:
         """Transfer every discovered .T49 file to the calculator.
@@ -82,14 +84,15 @@ class TransferCommand(Command):
                 max_retries=args.retries,
             )
 
-            NEW_DIR_NAME = "OKDIR2"
-            logging.info(f"Creating directory '{NEW_DIR_NAME}' on the calculator...")
-            rpl_command = f"'{NEW_DIR_NAME}' CRDIR"
-            session.send_host_command(rpl_command)
+            if args.mkdir:
+                logging.info(f"Creating target directory '{args.dir}' on the calculator...")
+                rpl_command = f"'{args.dir}' CRDIR"
+                session.send_host_command(rpl_command)
 
-            logging.info(f"Moving to the DIR")
-            rpl_command = f"'{NEW_DIR_NAME}' EVAL"
-            session.send_host_command(rpl_command)
+            if args.dir or args.mkdir:
+                logging.info(f"Changing to target directory '{args.dir}' on the calculator...")
+                rpl_command = f"'{args.dir}' EVAL"
+                session.send_host_command(rpl_command)
 
             for t49_path in t49_files:
                 logging.info("[Transferring: %s]", t49_path.name)
