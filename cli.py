@@ -7,12 +7,14 @@ import logging
 
 from commands.base import Command, RunResult
 from commands.build_tgv import BuildTGVCommand
+from commands.file_sys import FileSystemCommand
 from commands.transfer import TransferCommand
 from utils.logging import setup_logging
 
 COMMANDS: list[Command] = [
     BuildTGVCommand(),
     TransferCommand(),
+    FileSystemCommand(),
 ]
 
 
