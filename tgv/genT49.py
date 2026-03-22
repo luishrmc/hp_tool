@@ -94,6 +94,12 @@ def build_image_object(image_ref: str, base_dir: Path, bmp_selected_dir: str) ->
     image_path = Path(image_ref)
     if not image_path.is_absolute():
         image_path = (base_dir / bmp_selected_dir / image_path).resolve()
+    else:
+        image_path = image_path.resolve()
+
+    if not image_path.is_relative_to(base_dir.resolve()):
+        logging.error("Blocked path traversal attempt in image resolution: %s", image_path)
+        return b""
 
     if not image_path.exists():
         logging.error("Image not found: %s", image_path)

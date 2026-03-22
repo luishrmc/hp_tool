@@ -16,13 +16,22 @@ NEWCOMMAND_RE = re.compile(
 )
 TAG_PATTERN = re.compile(r'\[(?:SUB|SUP|NORM|B|/B|I|/I|U|/U|INV|/INV)\]')
 
+SORTED_LATEX_COMMANDS = sorted(LATEX_TO_CHAR_MAP.keys(), key=len, reverse=True)
+FRAC_PATTERN = re.compile(r'\\frac\{((?:[^{}]|\{[^{}]*\})*)\}\{((?:[^{}]|\{[^{}]*\})*)\}')
+SQRT_PATTERN = re.compile(r'\\sqrt\{((?:[^{}]|\{[^{}]*\})*)\}')
 
-def read_tex_with_includes(input_path: Path, visited: set[Path] | None = None) -> str:
+
+def read_tex_with_includes(
+    input_path: Path,
+    visited: set[Path] | None = None,
+    base_dir: Path | None = None,
+) -> str:
     """Read a TeX file and inline ``\\include`` and ``\\input`` references.
 
     Args:
         input_path: Entry-point TeX file to expand.
         visited: Optional set used to avoid recursive include loops.
+        base_dir: Base directory used to enforce path traversal protections.
 
     Returns:
         str: Expanded TeX source.
@@ -32,9 +41,15 @@ def read_tex_with_includes(input_path: Path, visited: set[Path] | None = None) -
     """
     if visited is None:
         visited = set()
+    if base_dir is None:
+        base_dir = input_path.resolve().parent
 
     input_path = input_path.resolve()
     if input_path in visited:
+        return ""
+
+    if not input_path.is_relative_to(base_dir):
+        logging.warning("Blocked path traversal attempt in file inclusion: %s", input_path)
         return ""
 
     visited.add(input_path)
@@ -46,12 +61,16 @@ def read_tex_with_includes(input_path: Path, visited: set[Path] | None = None) -
 
     def replace_include(match: re.Match[str]) -> str:
         name = match.group(2).strip()
-        include_path = input_path.parent / name
+        include_path = (input_path.parent / name).resolve()
         if include_path.suffix == "":
             include_path = include_path.with_suffix(".tex")
 
+        if not include_path.is_relative_to(base_dir):
+            logging.warning("Blocked path traversal attempt: %s", include_path)
+            return match.group(0)
+
         if include_path.exists():
-            return read_tex_with_includes(include_path, visited)
+            return read_tex_with_includes(include_path, visited, base_dir)
 
         logging.warning("Included file not found: %s", include_path)
         return match.group(0)
@@ -234,15 +253,19 @@ def clean_latex_fragment(
     text = re.sub(r'\^\{([^}]+)\}', r'[SUP]\1[NORM]', text)
     text = re.sub(r'\^([a-zA-Z0-9])', r'[SUP]\1[NORM]', text)
 
-    frac_pattern = r'\\frac\{((?:[^{}]|\{[^{}]*\})*)\}\{((?:[^{}]|\{[^{}]*\})*)\}'
-    while re.search(frac_pattern, text):
-        text = re.sub(frac_pattern, r'(\1)/(\2)', text)
+    for _ in range(64):
+        new_text = FRAC_PATTERN.sub(r'(\1)/(\2)', text)
+        if new_text == text:
+            break
+        text = new_text
 
-    sqrt_pattern = r'\\sqrt\{((?:[^{}]|\{[^{}]*\})*)\}'
-    while re.search(sqrt_pattern, text):
-        text = re.sub(sqrt_pattern, r'√(\1)', text)
+    for _ in range(64):
+        new_text = SQRT_PATTERN.sub(r'√(\1)', text)
+        if new_text == text:
+            break
+        text = new_text
 
-    for cmd in sorted(LATEX_TO_CHAR_MAP.keys(), key=len, reverse=True):
+    for cmd in SORTED_LATEX_COMMANDS:
         text = text.replace(cmd, LATEX_TO_CHAR_MAP[cmd])
 
     text = re.sub(r'\\([A-Za-z]+)\b', r'\1', text)

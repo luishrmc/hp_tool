@@ -139,18 +139,18 @@ class KermitSession:
             SessionError: If even a single byte cannot fit in the negotiated size.
         """
         raw = bytearray()
+        encoded = bytearray()
         for byte in data[offset:]:
-            trial = bytes(raw) + bytes([byte])
-            encoded = kermit_encode(trial, qctl=ord('#'), qbin=self.qbin)
-            if len(encoded) > self.max_encoded_data:
+            chunk_enc = kermit_encode(bytes([byte]), qctl=ord('#'), qbin=self.qbin)
+            if len(encoded) + len(chunk_enc) > self.max_encoded_data:
                 break
             raw.append(byte)
+            encoded.extend(chunk_enc)
 
         if not raw:
             raise SessionError("Single byte encoded size exceeds negotiated MAXL")
 
-        encoded = kermit_encode(bytes(raw), qctl=ord('#'), qbin=self.qbin)
-        return {"raw": bytes(raw), "encoded": encoded}
+        return {"raw": bytes(raw), "encoded": bytes(encoded)}
 
     def _send_and_expect(self, packet: KermitPacket, expected_type: bytes) -> KermitPacket:
         """Send a packet and wait for the expected response type.
