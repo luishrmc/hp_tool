@@ -1,0 +1,33 @@
+/home/luis/me/hp50g/hp_tool/.venv/bin/python /home/luis/me/hp50g/hp_tool/test/mkdir.py
+Opening port /dev/ttyUSB0...
+2026-03-22 11:01:32,271 [DEBUG] Opened serial port /dev/ttyUSB0 @ 115200
+Negotiating session parameters...
+2026-03-22 11:01:32,271 [DEBUG] TX packet: seq=0 type=S data_len=7 attempt=1
+2026-03-22 11:01:32,271 [DEBUG] TX raw: 01 2A 20 53 70 20 20 23 2D 23 26 49 0D
+2026-03-22 11:01:32,316 [DEBUG] RX raw: 01 2B 20 59 7E 2A 20 40 2D 23 26 31 34 0D
+2026-03-22 11:01:32,316 [DEBUG] RX packet: seq=0 type=Y data_len=8
+2026-03-22 11:01:32,316 [DEBUG] 8-bit quoting negotiated: QBIN=0x26 ('&')
+Creating directory 'MYTESTDIR' on the calculator...
+2026-03-22 11:01:32,316 [DEBUG] TX packet: seq=0 type=C data_len=17 attempt=1
+2026-03-22 11:01:32,316 [DEBUG] TX raw: 01 34 20 43 27 4D 59 54 45 53 54 44 49 52 27 20 43 52 44 49 52 5E 0D
+2026-03-22 11:01:32,458 [DEBUG] RX raw: 01 2B 20 53 7E 2A 20 40 2D 23 59 33 24 0D
+2026-03-22 11:01:32,458 [DEBUG] RX packet: seq=0 type=S data_len=8
+2026-03-22 11:01:32,458 [DEBUG] TX packet: seq=0 type=C data_len=17 attempt=2
+2026-03-22 11:01:32,458 [DEBUG] TX raw: 01 34 20 43 27 4D 59 54 45 53 54 44 49 52 27 20 43 52 44 49 52 5E 0D
+2026-03-22 11:01:32,615 [DEBUG] RX raw: 01 2B 20 53 7E 2A 20 40 2D 23 59 33 24 0D
+2026-03-22 11:01:32,615 [DEBUG] RX packet: seq=0 type=S data_len=8
+2026-03-22 11:01:32,615 [DEBUG] TX packet: seq=0 type=C data_len=17 attempt=3
+2026-03-22 11:01:32,615 [DEBUG] TX raw: 01 34 20 43 27 4D 59 54 45 53 54 44 49 52 27 20 43 52 44 49 52 5E 0D
+2026-03-22 11:01:32,773 [DEBUG] RX raw: 01 2B 20 53 7E 2A 20 40 2D 23 59 33 24 0D
+2026-03-22 11:01:32,773 [DEBUG] RX packet: seq=0 type=S data_len=8
+2026-03-22 11:01:32,774 [DEBUG] TX packet: seq=0 type=C data_len=17 attempt=4
+2026-03-22 11:01:32,774 [DEBUG] TX raw: 01 34 20 43 27 4D 59 54 45 53 54 44 49 52 27 20 43 52 44 49 52 5E 0D
+2026-03-22 11:01:32,934 [DEBUG] RX raw: 01 2B 20 53 7E 2A 20 40 2D 23 59 33 24 0D
+2026-03-22 11:01:32,934 [DEBUG] RX packet: seq=0 type=S data_len=8
+2026-03-22 11:01:32,934 [DEBUG] TX packet: seq=0 type=C data_len=17 attempt=5
+2026-03-22 11:01:32,934 [DEBUG] TX raw: 01 34 20 43 27 4D 59 54 45 53 54 44 49 52 27 20 43 52 44 49 52 5E 0D
+2026-03-22 11:01:33,095 [DEBUG] RX raw: 01 2B 20 53 7E 2A 20 40 2D 23 59 33 24 0D
+2026-03-22 11:01:33,095 [DEBUG] RX packet: seq=0 type=S data_len=8
+An error occurred: Packet exchange failed after retries: Unexpected reply type b'S', expected b'Y'
+2026-03-22 11:01:33,095 [DEBUG] Closed serial port /dev/ttyUSB0
+Connection closed.

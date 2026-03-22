@@ -35,5 +35,7 @@ hp_tool/
 ```
 
 python main.py --debug build-tgv /home/luis/me/hp50g/latex_model --gen-imgs
+
 python main.py --debug build-tgv /home/luis/me/hp50g/latex_model --txt-file lista1.txt --gen-text --gen-t49
-python main.py --debug transfer /home/luis/me/hp50g/latex_model /dev/ttyUSB0
+
+python main.py --debug transfer /home/luis/me/hp50g/latex_model /dev/ttyUSB0 --mkdir TEST

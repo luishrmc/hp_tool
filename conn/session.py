@@ -17,6 +17,7 @@ from utils.constants import (
     PKT_FILE_HEADER,
     PKT_NAK,
     PKT_SEND_INIT,
+    PKT_HOST_CMD,
 )
 from utils.exceptions import PacketError, SessionError
 
@@ -210,3 +211,11 @@ class KermitSession:
     def _next_seq(self) -> None:
         """Advance the 6-bit packet sequence number."""
         self.seq = (self.seq + 1) % 64
+
+    def send_host_command(self, command: str) -> KermitPacket:
+        """Send a Kermit host-command packet (experimental fallback)."""
+        payload = command.encode("ascii", errors="replace")
+        reply = self._send_and_expect(KermitPacket(self.seq, PKT_HOST_CMD, payload), PKT_ACK)
+        self._next_seq()
+        logging.debug("Host command executed: %s", command)
+        return reply
