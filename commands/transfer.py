@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 
 from commands.base import Command, RunResult
+from conn.client import CalculatorClient
 from conn.session import KermitSession
 from conn.transport import SerialTransport
 from utils.exceptions import HPConnError
@@ -83,20 +84,17 @@ class TransferCommand(Command):
                 packet_size=args.packet_size,
                 max_retries=args.retries,
             )
+            client = CalculatorClient(session)
 
             if args.mkdir:
-                logging.info(f"Creating target directory '{args.dir}' on the calculator...")
-                rpl_command = f"'{args.dir}' CRDIR"
-                session.send_host_command(rpl_command)
+                client.create_dir(args.dir)
 
             if args.dir or args.mkdir:
-                logging.info(f"Changing to target directory '{args.dir}' on the calculator...")
-                rpl_command = f"'{args.dir}' EVAL"
-                session.send_host_command(rpl_command)
+                client.change_dir(args.dir)
 
             for t49_path in t49_files:
                 logging.info("[Transferring: %s]", t49_path.name)
-                session.send_file(t49_path)
+                client.upload_file(t49_path)
 
             logging.info("[transfer completed]")
             return RunResult(
