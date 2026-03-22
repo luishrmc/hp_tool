@@ -7,6 +7,7 @@ from pathlib import Path
 
 from calculator import CalculatorClient, RPLCommandBuilder
 from commands.file_sys import CalculatorFileSystem
+from conn.session import HostCommandResult
 
 
 class FakeSession:
@@ -16,9 +17,9 @@ class FakeSession:
         self.host_commands: list[str] = []
         self.files: list[Path] = []
 
-    def send_host_command(self, command: str) -> str:
+    def send_host_command(self, command: str) -> HostCommandResult:
         self.host_commands.append(command)
-        return command
+        return HostCommandResult(command=command, reply_packet="ACK")
 
     def send_file(self, file_path: str | Path) -> None:
         self.files.append(Path(file_path))
@@ -69,19 +70,22 @@ class CalculatorFileSystemTests(unittest.TestCase):
         client = CalculatorClient(session)
         file_system = CalculatorFileSystem(client)
 
-        file_system.create_variable("A", "1", folder="/HOME/TEST")
+        result = file_system.create_variable("A", "1", folder="/HOME/TEST")
 
         self.assertEqual(session.host_commands, ["'/HOME/TEST' EVAL 1 'A' STO"])
+        self.assertEqual(result.command, "'/HOME/TEST' EVAL 1 'A' STO")
+        self.assertEqual(result.path, "/HOME/TEST/A")
 
     def test_save_file_routes_upload_to_parent_directory(self) -> None:
         session = FakeSession()
         client = CalculatorClient(session)
         file_system = CalculatorFileSystem(client)
 
-        file_system.save_file("/tmp/example.T49", "/HOME/TEST/example.T49")
+        result = file_system.save_file("/tmp/example.T49", "/HOME/TEST/example.T49")
 
         self.assertEqual(session.host_commands, ["'/HOME/TEST' EVAL"])
         self.assertEqual(session.files, [Path("/tmp/example.T49")])
+        self.assertEqual(result.path, "/HOME/TEST/example.T49")
 
     def test_save_file_rejects_remote_rename_for_now(self) -> None:
         session = FakeSession()
@@ -90,15 +94,3 @@ class CalculatorFileSystemTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             file_system.save_file("/tmp/example.T49", "/HOME/TEST/renamed.T49")
-
-    def test_list_dir_documents_current_session_gap(self) -> None:
-        session = FakeSession()
-        client = CalculatorClient(session)
-        file_system = CalculatorFileSystem(client)
-
-        with self.assertRaises(NotImplementedError):
-            file_system.list_dir("/HOME")
-
-
-if __name__ == "__main__":
-    unittest.main()

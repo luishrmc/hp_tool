@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from conn.packet import KermitPacket
-from conn.session import KermitSession
+from conn.session import HostCommandResult, KermitSession
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,16 +98,16 @@ class CalculatorClient:
         """Store the active session used for all calculator interactions."""
         self.session = session
 
-    def run_rpl(self, command: str | RPLCommand) -> KermitPacket:
+    def run_rpl(self, command: str | RPLCommand) -> HostCommandResult:
         """Execute a raw or prebuilt RPL command via Kermit Server."""
         expression = command.expression if isinstance(command, RPLCommand) else command
         return self.session.send_host_command(expression)
 
-    def create_remote_dir(self, path: str) -> KermitPacket:
+    def create_remote_dir(self, path: str) -> HostCommandResult:
         """Create a directory on the calculator."""
         return self.run_rpl(RPLCommandBuilder.create_remote_dir(path))
 
-    def change_remote_dir(self, path: str) -> KermitPacket:
+    def change_remote_dir(self, path: str) -> HostCommandResult:
         """Change the current directory on the calculator."""
         return self.run_rpl(RPLCommandBuilder.change_remote_dir(path))
 
