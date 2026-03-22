@@ -37,6 +37,16 @@ class RPLCommandBuilderTests(unittest.TestCase):
         command = RPLCommandBuilder.create_remote_dir("/HOME/PARENT/CHILD")
         self.assertEqual(command.expression, "'PARENT' EVAL 'CHILD' CRDIR")
 
+    def test_remove_remote_dir_uses_pgdir_when_requested(self) -> None:
+        command = RPLCommandBuilder.remove_remote_dir("FLOWTEST", purge=True)
+        self.assertEqual(command.name, "remove_remote_dir")
+        self.assertEqual(command.expression, "'FLOWTEST' PGDIR")
+
+    def test_store_equation_in_folder(self) -> None:
+        command = RPLCommandBuilder.store_equation("EQ1", "X^2+1", folder="/HOME/ALG")
+        self.assertEqual(command.name, "store_equation")
+        self.assertEqual(command.expression, "'/HOME/ALG' EVAL 'X^2+1' 'EQ1' STO")
+
 
 class CalculatorClientTests(unittest.TestCase):
     """Verify that the client delegates to the existing session object."""
