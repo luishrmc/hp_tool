@@ -40,19 +40,44 @@ class RPLCommandBuilder:
         return ' '.join(f"{cls._quote_name(segment)} EVAL" for segment in segments)
 
     @classmethod
-    def create_remote_dir(cls, path: str) -> RPLCommand:
-        """Build an RPL command that creates a remote directory."""
+    def _split_directory_target(cls, path: str) -> tuple[list[str], str]:
+        """Split a remote directory path into parent segments and leaf name."""
         segments = cls._folder_segments(path)
         if not segments:
             raise ValueError(f"Remote directory path must include a directory name: {path!r}")
+        return segments[:-1], segments[-1]
 
-        *parents, leaf = segments
+    @classmethod
+    def create_remote_dir(cls, path: str) -> RPLCommand:
+        """Build an RPL command that creates a remote directory."""
+        parents, leaf = cls._split_directory_target(path)
         if not parents:
             expression = f"{cls._quote_name(leaf)} CRDIR"
         else:
             navigation = cls._navigation_from_segments(parents)
             expression = f"{navigation} {cls._quote_name(leaf)} CRDIR"
         return RPLCommand(name="create_remote_dir", expression=expression)
+
+    @classmethod
+    def move_remote_dir(cls, src_path: str, dest_path: str) -> RPLCommand:
+        """Build an RPL command that renames or moves a directory within one parent folder."""
+        src_parents, src_leaf = cls._split_directory_target(src_path)
+        dest_parents, dest_leaf = cls._split_directory_target(dest_path)
+        if src_parents != dest_parents:
+            raise ValueError(
+                "change-dir currently requires source and destination to share the same parent directory"
+            )
+
+        rename_expression = (
+            f"{cls._quote_name(src_leaf)} RCL {cls._quote_name(dest_leaf)} STO "
+            f"{cls._quote_name(src_leaf)} PURGE"
+        )
+        if not src_parents:
+            expression = rename_expression
+        else:
+            navigation = cls._navigation_from_segments(src_parents)
+            expression = f"{navigation} {rename_expression}"
+        return RPLCommand(name="move_remote_dir", expression=expression)
 
     @classmethod
     def change_remote_dir(cls, path: str) -> RPLCommand:

@@ -16,16 +16,17 @@ from utils.exceptions import HPConnError
 
 @dataclass(frozen=True, slots=True)
 class FileSystemResult:
-    """Structured outcome returned by the minimal filesystem operation."""
+    """Structured outcome returned by the minimal filesystem operations."""
 
     operation: str
     path: str
     command: str
     output_text: str = ""
+    dest_path: str | None = None
 
 
 class CalculatorFileSystem:
-    """Minimal calculator file-system service for remote directory creation."""
+    """Minimal calculator file-system service for remote directory operations."""
 
     def __init__(self, client: CalculatorClient) -> None:
         """Bind the service to an existing calculator client."""
@@ -62,12 +63,26 @@ class CalculatorFileSystem:
         host_result = self.client.run_rpl(RPLCommandBuilder.create_remote_dir(validated_path))
         return self._result_from_host("create_dir", validated_path, host_result)
 
+    def change_dir(self, src_path: str, dest_path: str) -> FileSystemResult:
+        """Rename or move a directory within a single parent folder."""
+        validated_src = self._validate_create_dir_path(src_path)
+        validated_dest = self._validate_create_dir_path(dest_path)
+        host_result = self.client.run_rpl(RPLCommandBuilder.move_remote_dir(validated_src, validated_dest))
+        result = self._result_from_host("change_dir", validated_src, host_result)
+        return FileSystemResult(
+            operation=result.operation,
+            path=result.path,
+            command=result.command,
+            output_text=result.output_text,
+            dest_path=validated_dest,
+        )
+
 
 class FileSystemCommand(Command):
-    """CLI command exposing only remote directory creation for now."""
+    """CLI command exposing minimal remote directory operations."""
 
     name = "file-sys"
-    help = "Create a calculator directory via Kermit Server host commands"
+    help = "Create or change a calculator directory via Kermit Server host commands"
 
     def add_args(self, parser: argparse.ArgumentParser) -> None:
         """Register CLI arguments for the file-sys subcommand."""
@@ -75,7 +90,14 @@ class FileSystemCommand(Command):
         parser.add_argument("--baud", type=int, default=115200, help="Serial baud rate")
         parser.add_argument("--packet-size", type=int, default=80, help="Payload size for D packets")
         parser.add_argument("--retries", type=int, default=5, help="Maximum retries per packet")
-        parser.add_argument("--create-dir", required=True, metavar="REMOTE_DIR", help="Create a calculator directory")
+        group = parser.add_mutually_exclusive_group(required=True)
+        group.add_argument("--create-dir", metavar="REMOTE_DIR", help="Create a calculator directory")
+        group.add_argument(
+            "--change-dir",
+            nargs=2,
+            metavar=("SRC_PATH", "DEST_PATH"),
+            help="Rename or move a calculator directory within one parent folder",
+        )
 
     def run(self, args: argparse.Namespace) -> RunResult:
         """Execute remote directory creation."""
@@ -92,7 +114,13 @@ class FileSystemCommand(Command):
                 max_retries=args.retries,
             )
             file_system = CalculatorFileSystem(CalculatorClient(session))
-            result = file_system.create_dir(args.create_dir)
+            if getattr(args, "create_dir", None):
+                result = file_system.create_dir(args.create_dir)
+            elif getattr(args, "change_dir", None):
+                src_path, dest_path = args.change_dir
+                result = file_system.change_dir(src_path, dest_path)
+            else:
+                raise ValueError("No file-sys operation selected")
             return self._to_run_result(result)
         except (HPConnError, ValueError) as exc:
             message = f"file-sys failed: {exc}"
@@ -104,7 +132,10 @@ class FileSystemCommand(Command):
     @staticmethod
     def _to_run_result(result: FileSystemResult) -> RunResult:
         """Convert a minimal filesystem result into the shared CLI result shape."""
-        message = f"{result.operation} completed for {result.path}"
+        if result.operation == "change_dir" and result.dest_path is not None:
+            message = f"{result.operation} completed from {result.path} to {result.dest_path}"
+        else:
+            message = f"{result.operation} completed for {result.path}"
         if result.output_text.strip():
             message = f"{message}\n{result.output_text.strip()}"
         return RunResult(
@@ -115,5 +146,6 @@ class FileSystemCommand(Command):
                 "path": result.path,
                 "command": result.command,
                 "output_text": result.output_text,
+                "dest_path": result.dest_path,
             },
         )
