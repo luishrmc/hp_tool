@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from conn.packet import KermitPacket, kermit_encode
+from conn.packet import KermitPacket, kermit_encode_byte
 from conn.transport import SerialTransport
 from utils.constants import (
     DEFAULT_MAX_RETRIES,
@@ -139,18 +139,18 @@ class KermitSession:
             SessionError: If even a single byte cannot fit in the negotiated size.
         """
         raw = bytearray()
+        encoded = bytearray()
         for byte in data[offset:]:
-            trial = bytes(raw) + bytes([byte])
-            encoded = kermit_encode(trial, qctl=ord('#'), qbin=self.qbin)
-            if len(encoded) > self.max_encoded_data:
+            encoded_byte = kermit_encode_byte(byte, qctl=ord('#'), qbin=self.qbin)
+            if len(encoded) + len(encoded_byte) > self.max_encoded_data:
                 break
             raw.append(byte)
+            encoded.extend(encoded_byte)
 
         if not raw:
             raise SessionError("Single byte encoded size exceeds negotiated MAXL")
 
-        encoded = kermit_encode(bytes(raw), qctl=ord('#'), qbin=self.qbin)
-        return {"raw": bytes(raw), "encoded": encoded}
+        return {"raw": bytes(raw), "encoded": bytes(encoded)}
 
     def _send_and_expect(self, packet: KermitPacket, expected_type: bytes) -> KermitPacket:
         """Send a packet and wait for the expected response type.

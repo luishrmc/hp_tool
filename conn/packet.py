@@ -84,6 +84,22 @@ class KermitPacket:
         return (total + ((total & 0xC0) >> 6)) & 0x3F
 
 
+def kermit_encode_byte(byte: int, qctl: int = ord('#'), qbin: int | None = None) -> bytes:
+    """Encode one raw byte for a Kermit D-packet payload."""
+    out = bytearray()
+    high = byte & 0x80
+    low = byte & 0x7F
+
+    if high and qbin is not None:
+        out.append(qbin)
+        _encode_low(out, low, qctl, qbin)
+    elif high:
+        raise ValueError(f"High byte 0x{byte:02X} in data but QBIN not negotiated")
+    else:
+        _encode_low(out, byte, qctl, qbin)
+    return bytes(out)
+
+
 def kermit_encode(data: bytes, qctl: int = ord('#'), qbin: int | None = None) -> bytes:
     """Encode file data for a Kermit D-packet payload.
 
@@ -100,16 +116,7 @@ def kermit_encode(data: bytes, qctl: int = ord('#'), qbin: int | None = None) ->
     """
     out = bytearray()
     for byte in data:
-        high = byte & 0x80
-        low = byte & 0x7F
-
-        if high and qbin is not None:
-            out.append(qbin)
-            _encode_low(out, low, qctl, qbin)
-        elif high:
-            raise ValueError(f"High byte 0x{byte:02X} in data but QBIN not negotiated")
-        else:
-            _encode_low(out, byte, qctl, qbin)
+        out.extend(kermit_encode_byte(byte, qctl=qctl, qbin=qbin))
     return bytes(out)
 
 

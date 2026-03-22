@@ -17,7 +17,20 @@ NEWCOMMAND_RE = re.compile(
 TAG_PATTERN = re.compile(r'\[(?:SUB|SUP|NORM|B|/B|I|/I|U|/U|INV|/INV)\]')
 
 
-def read_tex_with_includes(input_path: Path, visited: set[Path] | None = None) -> str:
+def _is_within_directory(path: Path, root_dir: Path) -> bool:
+    """Return whether ``path`` stays within ``root_dir`` after resolution."""
+    try:
+        path.relative_to(root_dir)
+        return True
+    except ValueError:
+        return False
+
+
+def read_tex_with_includes(
+    input_path: Path,
+    visited: set[Path] | None = None,
+    root_dir: Path | None = None,
+) -> str:
     """Read a TeX file and inline ``\\include`` and ``\\input`` references.
 
     Args:
@@ -34,6 +47,11 @@ def read_tex_with_includes(input_path: Path, visited: set[Path] | None = None) -
         visited = set()
 
     input_path = input_path.resolve()
+    if root_dir is None:
+        root_dir = input_path.parent
+    else:
+        root_dir = root_dir.resolve()
+
     if input_path in visited:
         return ""
 
@@ -49,9 +67,14 @@ def read_tex_with_includes(input_path: Path, visited: set[Path] | None = None) -
         include_path = input_path.parent / name
         if include_path.suffix == "":
             include_path = include_path.with_suffix(".tex")
+        include_path = include_path.resolve()
+
+        if not _is_within_directory(include_path, root_dir):
+            logging.warning("Blocked include outside project root: %s", include_path)
+            return match.group(0)
 
         if include_path.exists():
-            return read_tex_with_includes(include_path, visited)
+            return read_tex_with_includes(include_path, visited, root_dir=root_dir)
 
         logging.warning("Included file not found: %s", include_path)
         return match.group(0)
@@ -165,6 +188,25 @@ def split_text_blocks(text: str) -> list[str]:
     return [part.strip() for part in parts if part.strip()]
 
 
+def _apply_repeated_substitution(
+    text: str,
+    pattern: re.Pattern[str],
+    replacement: str,
+    *,
+    max_passes: int,
+    label: str,
+) -> str:
+    """Apply a nested-regex rewrite with a strict, input-derived pass limit."""
+    for _ in range(max_passes):
+        text, replacements = pattern.subn(replacement, text)
+        if replacements == 0:
+            return text
+
+    if pattern.search(text):
+        logging.warning("Stopped expanding %s after %d pass(es)", label, max_passes)
+    return text
+
+
 def clean_latex_fragment(
     text: str,
     target_dir: Path | None,
@@ -234,13 +276,23 @@ def clean_latex_fragment(
     text = re.sub(r'\^\{([^}]+)\}', r'[SUP]\1[NORM]', text)
     text = re.sub(r'\^([a-zA-Z0-9])', r'[SUP]\1[NORM]', text)
 
-    frac_pattern = r'\\frac\{((?:[^{}]|\{[^{}]*\})*)\}\{((?:[^{}]|\{[^{}]*\})*)\}'
-    while re.search(frac_pattern, text):
-        text = re.sub(frac_pattern, r'(\1)/(\2)', text)
+    frac_pattern = re.compile(r'\\frac\{((?:[^{}]|\{[^{}]*\})*)\}\{((?:[^{}]|\{[^{}]*\})*)\}')
+    text = _apply_repeated_substitution(
+        text,
+        frac_pattern,
+        r'(\1)/(\2)',
+        max_passes=text.count(r'\frac'),
+        label='\\frac',
+    )
 
-    sqrt_pattern = r'\\sqrt\{((?:[^{}]|\{[^{}]*\})*)\}'
-    while re.search(sqrt_pattern, text):
-        text = re.sub(sqrt_pattern, r'√(\1)', text)
+    sqrt_pattern = re.compile(r'\\sqrt\{((?:[^{}]|\{[^{}]*\})*)\}')
+    text = _apply_repeated_substitution(
+        text,
+        sqrt_pattern,
+        r'√(\1)',
+        max_passes=text.count(r'\sqrt'),
+        label='\\sqrt',
+    )
 
     for cmd in sorted(LATEX_TO_CHAR_MAP.keys(), key=len, reverse=True):
         text = text.replace(cmd, LATEX_TO_CHAR_MAP[cmd])
