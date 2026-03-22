@@ -10,18 +10,21 @@ from utils.exceptions import PacketError
 
 @dataclass(slots=True)
 class KermitPacket:
-    """Represents one minimal Kermit packet.
-
-    This skeleton uses a simple 1-byte checksum and a compact framing model.
-    It is intentionally conservative for early bring-up and logging.
-    """
+    """Represent a single framed Kermit packet."""
 
     seq: int
     pkt_type: bytes
     data: bytes = b""
 
     def encode(self) -> bytes:
-        """Encode the packet to raw bytes."""
+        """Encode the packet into raw wire bytes.
+
+        Returns:
+            bytes: Serialized packet including framing and checksum.
+
+        Raises:
+            PacketError: If the packet type or sequence number is invalid.
+        """
         if len(self.pkt_type) != 1:
             raise PacketError("Packet type must be exactly one byte")
         if not 0 <= self.seq <= 63:
@@ -34,15 +37,26 @@ class KermitPacket:
 
     @classmethod
     def decode(cls, raw: bytes) -> "KermitPacket":
+        """Decode raw wire bytes into a packet object.
+
+        Args:
+            raw: Serialized packet bytes.
+
+        Returns:
+            KermitPacket: Decoded packet instance.
+
+        Raises:
+            PacketError: If the packet framing, length, or checksum is invalid.
+        """
         if len(raw) < 6:
             raise PacketError("Raw packet too short")
         if raw[0] != SOH:
             raise PacketError("Packet does not start with SOH")
-        # EOL terminator is the last byte — validated by length, not value
+
         length = raw[1] - 32
-        seq    = raw[2] - 32
+        seq = raw[2] - 32
         pkt_type = raw[3:4]
-        data   = raw[4:-2]
+        data = raw[4:-2]
         recv_checksum = raw[-2] - 32
 
         if length != len(data) + 3:
@@ -56,31 +70,43 @@ class KermitPacket:
             )
         return cls(seq=seq, pkt_type=pkt_type, data=data)
 
-
     @staticmethod
     def _checksum(body: bytes) -> int:
-        """Compute the classic 6-bit checksum for the packet body."""
+        """Compute the classic 6-bit checksum for a packet body.
+
+        Args:
+            body: Packet body excluding SOH, checksum, and EOL.
+
+        Returns:
+            int: Six-bit checksum value.
+        """
         total = sum(body)
         return (total + ((total & 0xC0) >> 6)) & 0x3F
 
-def kermit_encode(data: bytes, qctl: int = ord('#'), qbin: int | None = None) -> bytes:
-    """Encode raw bytes for a Kermit D-packet data field.
 
-    Control chars (0x00-0x1F, 0x7F) → QCTL + (char ^ 0x40)
-    High bytes (0x80-0xFF)          → QBIN + encode(char & 0x7F)  [requires qbin]
-    QCTL/QBIN literals in data      → quoted to avoid framing confusion
+def kermit_encode(data: bytes, qctl: int = ord('#'), qbin: int | None = None) -> bytes:
+    """Encode file data for a Kermit D-packet payload.
+
+    Args:
+        data: Raw data bytes to encode.
+        qctl: Control-quote character.
+        qbin: Optional 8-bit quote character negotiated with the peer.
+
+    Returns:
+        bytes: Encoded payload safe for D-packet transmission.
+
+    Raises:
+        ValueError: If high-bit data is present without negotiated 8-bit quoting.
     """
     out = bytearray()
     for byte in data:
         high = byte & 0x80
-        low  = byte & 0x7F
+        low = byte & 0x7F
 
         if high and qbin is not None:
             out.append(qbin)
-            # The 7-bit half may itself need quoting
             _encode_low(out, low, qctl, qbin)
         elif high:
-            # 8-bit quoting not negotiated — protocol can't reliably transfer this byte
             raise ValueError(f"High byte 0x{byte:02X} in data but QBIN not negotiated")
         else:
             _encode_low(out, byte, qctl, qbin)
@@ -88,14 +114,14 @@ def kermit_encode(data: bytes, qctl: int = ord('#'), qbin: int | None = None) ->
 
 
 def _encode_low(out: bytearray, c: int, qctl: int, qbin: int | None) -> None:
-    """Encode a 7-bit value into the output buffer."""
-    if c < 0x20 or c == 0x7F:          # control character
+    """Append an encoded 7-bit byte to the output buffer."""
+    if c < 0x20 or c == 0x7F:
         out.append(qctl)
         out.append(c ^ 0x40)
-    elif c == qctl:                     # literal QCTL in data
+    elif c == qctl:
         out.append(qctl)
         out.append(qctl)
-    elif qbin is not None and c == qbin:  # literal QBIN in data
+    elif qbin is not None and c == qbin:
         out.append(qctl)
         out.append(qbin)
     else:

@@ -1,19 +1,19 @@
-"""Custom exceptions for hp_conn."""
+"""Custom exception hierarchy for hp_tool."""
 
 from __future__ import annotations
 
 
 class HPConnError(Exception):
-    """Base exception for the project."""
+    """Base exception for project-specific runtime errors."""
 
 
 class TransportError(HPConnError):
-    """Raised for serial port errors."""
+    """Raised when serial transport setup or I/O fails."""
 
 
 class PacketError(HPConnError):
-    """Raised for malformed or unsupported packets."""
+    """Raised when Kermit packet encoding or decoding fails."""
 
 
 class SessionError(HPConnError):
-    """Raised when the transfer session fails."""
+    """Raised when a file transfer session cannot complete."""

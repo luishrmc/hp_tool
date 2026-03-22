@@ -1,45 +1,34 @@
-"""
-HP50g TGV Pipeline: LaTeX to Plain Text Converter
-=================================================
-This module transforms LaTeX source code into formatted plain text compatible 
-with the TGV viewer on the HP50g. 
+"""LaTeX-to-text conversion for HP50g TGV documents."""
 
-Key transformation steps:
-1. Recursive expansion of \'include and \'input.
-2. Resolution of user-defined \newcommand macros.
-3. Parsing of document structure (paragraphs, equations, figures).
-4. Conversion of math syntax (\'frac, \'sqrt, subscripts) into plain-text notation.
-5. Character mapping from Unicode/LaTeX to the HP50g internal charset.
-6. Smart word-wrapping for the 22-column calculator display.
-"""
+from __future__ import annotations
 
-import re
 import logging
+import re
 from pathlib import Path
+
 from utils.charmap import HP_HEX_MAP, LATEX_TO_CHAR_MAP
 
-# --- REGEX DEFINITIONS ---
-
-# Captures display math blocks: \[ ... \]
 DISPLAY_MATH_RE = re.compile(r'\\\[(.*?)\\\]', re.DOTALL)
-
-# Captures figure environments to extract image and caption data
 FIGURE_RE = re.compile(r'\\begin\{figure\}(?:\[[^\]]*\])?(.*?)\\end\{figure\}', re.DOTALL)
-
-# Extracts \newcommand{\name}{value} with support for nested braces in the value
 NEWCOMMAND_RE = re.compile(
     r'\\newcommand\s*\{\\([A-Za-z@]+)\}\s*(?:\[[^\]]*\])?\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}',
     re.DOTALL,
 )
-
-# Identifies HP-specific formatting tags used during the wrapping process
 TAG_PATTERN = re.compile(r'\[(?:SUB|SUP|NORM|B|/B|I|/I|U|/U|INV|/INV)\]')
 
 
 def read_tex_with_includes(input_path: Path, visited: set[Path] | None = None) -> str:
-    """
-    Recursively merges all \'included or \'inputed files into a single string.
-    Prevents infinite recursion using the 'visited' set.
+    """Read a TeX file and inline ``\\include`` and ``\\input`` references.
+
+    Args:
+        input_path: Entry-point TeX file to expand.
+        visited: Optional set used to avoid recursive include loops.
+
+    Returns:
+        str: Expanded TeX source.
+
+    Raises:
+        FileNotFoundError: If the root input file does not exist.
     """
     if visited is None:
         visited = set()
@@ -57,23 +46,28 @@ def read_tex_with_includes(input_path: Path, visited: set[Path] | None = None) -
 
     def replace_include(match: re.Match[str]) -> str:
         name = match.group(2).strip()
-        include_path = (input_path.parent / name)
+        include_path = input_path.parent / name
         if include_path.suffix == "":
             include_path = include_path.with_suffix(".tex")
 
         if include_path.exists():
             return read_tex_with_includes(include_path, visited)
 
-        logging.warning(f"Included file not found: {include_path}")
+        logging.warning("Included file not found: %s", include_path)
         return match.group(0)
 
     return re.sub(r'\\(include|input)\{([^}]+)\}', replace_include, text)
 
 
 def extract_newcommands(text: str) -> tuple[dict[str, str], str]:
-    """
-    Finds all \newcommand definitions and stores them in a lookup dictionary.
-    Removes the definitions from the text to prevent them from appearing in output.
+    """Extract ``\newcommand`` definitions from TeX source.
+
+    Args:
+        text: Expanded TeX source.
+
+    Returns:
+        tuple[dict[str, str], str]: Mapping of command names to values and the
+        source text with those definitions removed.
     """
     commands: dict[str, str] = {}
 
@@ -87,9 +81,15 @@ def extract_newcommands(text: str) -> tuple[dict[str, str], str]:
 
 
 def resolve_commands(text: str, commands: dict[str, str], max_passes: int = 8) -> str:
-    """
-    Replaces instances of \'MyCommand with its defined value.
-    Runs multiple passes to handle 'nested' commands (commands that use other commands).
+    """Expand previously extracted macro definitions in a text fragment.
+
+    Args:
+        text: Text in which command references should be resolved.
+        commands: Mapping of command names to replacement values.
+        max_passes: Maximum expansion passes for nested command definitions.
+
+    Returns:
+        str: Text with commands expanded.
     """
     resolved = text
 
@@ -108,9 +108,13 @@ def resolve_commands(text: str, commands: dict[str, str], max_passes: int = 8) -
 
 
 def extract_sequence_blocks(text: str) -> list[str]:
-    """
-    Divides the document into a sequence of 'blocks' (Paragraphs, Images, or Equations).
-    This ensures that display equations and figures stay on their own lines.
+    """Split TeX content into paragraph, figure, and display-math blocks.
+
+    Args:
+        text: TeX source after macro definition extraction.
+
+    Returns:
+        list[str]: Ordered content blocks ready for fragment cleaning.
     """
     pattern = re.compile(
         r'\\\[(.*?)\\\]|\\begin\{figure\}(?:\[[^\]]*\])?(.*?)\\end\{figure\}',
@@ -121,7 +125,6 @@ def extract_sequence_blocks(text: str) -> list[str]:
     last_end = 0
 
     for match in pattern.finditer(text):
-        # Everything before the math/figure is a paragraph block
         prefix = text[last_end:match.start()]
         blocks.extend(split_text_blocks(prefix))
 
@@ -135,18 +138,21 @@ def extract_sequence_blocks(text: str) -> list[str]:
 
         last_end = match.end()
 
-    # Capture anything remaining after the last match
     suffix = text[last_end:]
     blocks.extend(split_text_blocks(suffix))
     return [block for block in blocks if block.strip()]
 
 
 def split_text_blocks(text: str) -> list[str]:
+    """Split ordinary TeX text into paragraph-sized blocks.
+
+    Args:
+        text: Raw TeX text outside figure or display-math blocks.
+
+    Returns:
+        list[str]: Cleaned paragraph fragments.
     """
-    Splits text into paragraphs based on double newlines.
-    Removes LaTeX structural noise (sections, labels, citations).
-    """
-    text = re.sub(r'%.*', '', text) # Remove comments
+    text = re.sub(r'%.*', '', text)
     text = re.sub(r'\\section\{([^}]+)\}', r'\1', text)
     text = re.sub(r'\\subsection\{([^}]+)\}', r'\1', text)
     text = re.sub(r'\\subsubsection\{([^}]+)\}', r'\1', text)
@@ -165,9 +171,16 @@ def clean_latex_fragment(
     bmp_selected_dir: str = "img/bmp_images",
     commands: dict[str, str] | None = None,
 ) -> str:
-    """
-    The core translation engine for a single block of text.
-    Converts LaTeX math and formatting into HP-friendly text.
+    """Convert a single TeX fragment into HP-friendly plain text.
+
+    Args:
+        text: Fragment to normalize.
+        target_dir: Project directory used to resolve generated BMP assets.
+        bmp_selected_dir: Relative directory containing selected BMP files.
+        commands: Optional macro lookup table.
+
+    Returns:
+        str: Cleaned fragment ready for sanitizing and wrapping.
     """
     commands = commands or {}
     text = resolve_commands(text, commands)
@@ -175,9 +188,7 @@ def clean_latex_fragment(
 
     image_placeholders: list[str] = []
 
-    # --- IMAGE HANDLING ---
     def format_image_tag(match: re.Match[str]) -> str:
-        """Finds the actual BMP variation selected for this image."""
         img_path = match.group(1).strip()
         stem = Path(img_path).stem
         actual_name = f"{stem}.bmp"
@@ -185,17 +196,15 @@ def clean_latex_fragment(
         if target_dir:
             search_path = target_dir / bmp_selected_dir
             if search_path.exists():
-                # Locate the specific variation (e.g. diagram_02_strong.bmp)
                 found = sorted(search_path.glob(f"{stem}*.bmp"))
                 if found:
                     actual_name = found[0].name
 
         image_placeholders.append(f"\\image{{{actual_name}}}")
-        return f"@@IMGPLACEHOLDER{len(image_placeholders)-1}@@"
+        return f"@@IMGPLACEHOLDER{len(image_placeholders) - 1}@@"
 
     text = re.sub(r'\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}', format_image_tag, text)
 
-    # --- FORMATTING STRIPPING ---
     text = re.sub(r'\\caption\{([^}]+)\}', r'\1', text)
     text = re.sub(r'\\text\{([^}]+)\}', r'\1', text)
     text = re.sub(r'\\mathrm\{([^}]+)\}', r'\1', text)
@@ -211,7 +220,6 @@ def clean_latex_fragment(
     text = text.replace('~', ' ')
     text = text.replace('$', '')
 
-    # --- ACCENT REMOVAL (HP50g limited charset) ---
     accent_replacements = {
         'ã': 'a', 'õ': 'o', 'á': 'a', 'à': 'a', 'â': 'a',
         'é': 'e', 'ê': 'e', 'í': 'i', 'ó': 'o', 'ô': 'o',
@@ -221,43 +229,41 @@ def clean_latex_fragment(
         text = text.replace(bad_char, good_char.lower())
         text = text.replace(bad_char.upper(), good_char.upper())
 
-    # --- MATH TRANSFORMATION ---
-    
-    # 1. Subscripts and Superscripts (Using TGV formatting tags)
     text = re.sub(r'_\{([^}]+)\}', r'[SUB]\1[NORM]', text)
     text = re.sub(r'_([a-zA-Z0-9])', r'[SUB]\1[NORM]', text)
     text = re.sub(r'\^\{([^}]+)\}', r'[SUP]\1[NORM]', text)
     text = re.sub(r'\^([a-zA-Z0-9])', r'[SUP]\1[NORM]', text)
 
-    # 2. Fractions: \frac{a}{b} -> (a)/(b)
     frac_pattern = r'\\frac\{((?:[^{}]|\{[^{}]*\})*)\}\{((?:[^{}]|\{[^{}]*\})*)\}'
     while re.search(frac_pattern, text):
         text = re.sub(frac_pattern, r'(\1)/(\2)', text)
 
-    # 3. Square Roots: \sqrt{x} -> √(x)
     sqrt_pattern = r'\\sqrt\{((?:[^{}]|\{[^{}]*\})*)\}'
     while re.search(sqrt_pattern, text):
         text = re.sub(sqrt_pattern, r'√(\1)', text)
 
-    # 4. Greek and Special Symbols (via charmap.py)
     for cmd in sorted(LATEX_TO_CHAR_MAP.keys(), key=len, reverse=True):
         text = text.replace(cmd, LATEX_TO_CHAR_MAP[cmd])
 
-    # Clean up remaining backslashes from simple commands
     text = re.sub(r'\\([A-Za-z]+)\b', r'\1', text)
 
-    # Restore images into their correct sequence
-    for i, img_tag in enumerate(image_placeholders):
-        text = text.replace(f"@@IMGPLACEHOLDER{i}@@", img_tag)
+    for index, img_tag in enumerate(image_placeholders):
+        text = text.replace(f"@@IMGPLACEHOLDER{index}@@", img_tag)
 
-    # Final whitespace normalization
     text = re.sub(r'[ \t]+', ' ', text)
     text = re.sub(r'\s*\n\s*', ' ', text)
     return text.strip()
 
 
 def is_char_supported(char: str) -> bool:
-    """Checks if a character is in the HP50g map or can be encoded as Latin-1."""
+    """Check whether a character can be represented in HP output.
+
+    Args:
+        char: Character to validate.
+
+    Returns:
+        bool: True when the character can be encoded for HP output.
+    """
     if char in HP_HEX_MAP:
         return True
     try:
@@ -268,9 +274,14 @@ def is_char_supported(char: str) -> bool:
 
 
 def smart_wrap(text: str, max_cols: int = 22) -> str:
-    """
-    Wraps text to the HP50g's 22-column limit.
-    Ensures that formatting tags (like [SUB]) don't count toward the column width.
+    """Wrap text to the calculator display width.
+
+    Args:
+        text: Text to wrap.
+        max_cols: Maximum visible column width per output line.
+
+    Returns:
+        str: Wrapped text with embedded formatting tags preserved.
     """
     words = text.split(' ')
     lines: list[str] = []
@@ -281,7 +292,6 @@ def smart_wrap(text: str, max_cols: int = 22) -> str:
         if not word:
             continue
 
-        # \image directives must always be on their own line
         if word.startswith('\\image{'):
             if current_line:
                 lines.append(" ".join(current_line))
@@ -290,7 +300,6 @@ def smart_wrap(text: str, max_cols: int = 22) -> str:
             lines.append(word)
             continue
 
-        # Calculate 'visible' length by removing tags
         visible_word = TAG_PATTERN.sub('', word)
         word_len = len(visible_word)
         space_needed = 1 if current_line else 0
@@ -311,13 +320,20 @@ def smart_wrap(text: str, max_cols: int = 22) -> str:
 
 
 def sanitize_for_hp(text: str) -> str:
-    """Replaces unsupported Unicode characters with '?' to prevent encoding errors."""
+    """Replace unsupported characters before HP encoding.
+
+    Args:
+        text: Text to sanitize.
+
+    Returns:
+        str: Sanitized text safe for later encoding.
+    """
     safe = []
     for char in text:
         if is_char_supported(char):
             safe.append(char)
         else:
-            logging.warning(f"Unmapped character '{char}' replaced with '?'")
+            logging.warning("Unmapped character '%s' replaced with '?'", char)
             safe.append('?')
     return "".join(safe)
 
@@ -328,9 +344,16 @@ def convert_tex_to_hp_text(
     bmp_selected_dir: str = "img/bmp_images",
     max_cols: int = 22,
 ) -> None:
-    """
-    The main entry point for file conversion.
-    Orchestrates the read -> extract -> clean -> wrap -> write flow.
+    """Convert a TeX document into wrapped HP-friendly text.
+
+    Args:
+        input_path: Source TeX file path.
+        output_path: Destination text file path.
+        bmp_selected_dir: Relative directory containing selected BMP assets.
+        max_cols: Maximum visible column width for wrapping.
+
+    Raises:
+        FileNotFoundError: If the source TeX file or a required include is missing.
     """
     in_file = Path(input_path)
     out_file = Path(output_path)
@@ -356,10 +379,9 @@ def convert_tex_to_hp_text(
         wrapped_block = smart_wrap(safe_block, max_cols=max_cols)
         processed_blocks.append(wrapped_block)
 
-    # Save final text with double newlines between blocks (paragraphs)
     out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text("\n\n".join(processed_blocks), encoding="utf-8")
 
-    logging.info(f"Successfully converted {in_file.name} to {out_file.name}")
-    logging.info(f"Extracted command definitions: {len(commands)}")
-    logging.info(f"Emitted sequence blocks: {len(processed_blocks)}")
+    logging.info("Successfully converted %s to %s", in_file.name, out_file.name)
+    logging.info("Extracted command definitions: %d", len(commands))
+    logging.info("Emitted sequence blocks: %d", len(processed_blocks))
