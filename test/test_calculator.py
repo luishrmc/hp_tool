@@ -37,6 +37,11 @@ class RPLCommandBuilderTests(unittest.TestCase):
         command = RPLCommandBuilder.create_remote_dir("/HOME/PARENT/CHILD")
         self.assertEqual(command.expression, "'PARENT' EVAL 'CHILD' CRDIR")
 
+    def test_create_nested_remote_dir_command_for_absolute_nested_folder(self) -> None:
+        command = RPLCommandBuilder.create_nested_remote_dir("/HOME/PARENT/CHILD")
+        self.assertEqual(command.name, "create_nested_remote_dir")
+        self.assertEqual(command.expression, "HOME 'PARENT' CRDIR 'PARENT' EVAL 'CHILD' CRDIR")
+
 
 class CalculatorClientTests(unittest.TestCase):
     """Verify that the client delegates to the existing session object."""
@@ -72,3 +77,14 @@ class CalculatorFileSystemTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             file_system.create_dir("/")
+
+    def test_create_dir_uses_nested_builder_for_absolute_nested_path(self) -> None:
+        session = FakeSession()
+        client = CalculatorClient(session)
+        file_system = CalculatorFileSystem(client)
+
+        result = file_system.create_dir("/HOME/PARENT/CHILD")
+
+        self.assertEqual(session.host_commands, ["HOME 'PARENT' CRDIR 'PARENT' EVAL 'CHILD' CRDIR"])
+        self.assertEqual(result.command, "HOME 'PARENT' CRDIR 'PARENT' EVAL 'CHILD' CRDIR")
+        self.assertEqual(result.path, "/HOME/PARENT/CHILD")
