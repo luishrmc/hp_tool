@@ -104,15 +104,33 @@ class SerialTransport:
         if not self._serial:
             raise TransportError("Serial port is not open")
 
-        soh = self._serial.read(1)
-        if not soh:
-            logging.debug("RX raw: <timeout, no SOH>")
-            return b""
-        if soh[0] != SOH:
-            raise TransportError(f"Expected SOH, got 0x{soh[0]:02X}")
+        discarded = bytearray()
+        while True:
+            soh = self._serial.read(1)
+            if not soh:
+                if discarded:
+                    logging.debug(
+                        "RX raw: discarded preamble before timeout: %s",
+                        self._hex_bytes(bytes(discarded)),
+                    )
+                else:
+                    logging.debug("RX raw: <timeout, no SOH>")
+                return b""
+
+            if soh[0] == SOH:
+                break
+
+            discarded.append(soh[0])
+
+        if discarded:
+            logging.debug(
+                "RX raw: discarded non-SOH preamble bytes before packet: %s",
+                self._hex_bytes(bytes(discarded)),
+            )
 
         len_byte = self._serial.read(1)
         if not len_byte:
+            logging.debug("RX raw: <timeout after SOH>")
             return b""
         packet_len = len_byte[0] - 32
         rest = self._serial.read(packet_len + 1)

@@ -1,4 +1,4 @@
-"""Unit tests for the calculator facade."""
+"""Unit tests for the calculator facade and minimal filesystem service."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 
 from calculator import CalculatorClient, RPLCommandBuilder
+from commands.file_sys import CalculatorFileSystem
+from conn.session import HostCommandResult
 
 
 class FakeSession:
@@ -15,26 +17,30 @@ class FakeSession:
         self.host_commands: list[str] = []
         self.files: list[Path] = []
 
-    def send_host_command(self, command: str) -> str:
+    def send_host_command(self, command: str) -> HostCommandResult:
         self.host_commands.append(command)
-        return command
+        return HostCommandResult(command=command, reply_packet="ACK")
 
     def send_file(self, file_path: str | Path) -> None:
         self.files.append(Path(file_path))
 
 
 class RPLCommandBuilderTests(unittest.TestCase):
-    """Verify that RPL commands are centralized and consistently built."""
+    """Verify that the create-dir command is centralized and normalized."""
 
-    def test_create_remote_dir_command(self) -> None:
-        command = RPLCommandBuilder.create_remote_dir("FLOWTEST")
+    def test_create_remote_dir_command_for_home_child(self) -> None:
+        command = RPLCommandBuilder.create_remote_dir("/HOME/TESTDIR")
         self.assertEqual(command.name, "create_remote_dir")
-        self.assertEqual(command.expression, "'FLOWTEST' CRDIR")
+        self.assertEqual(command.expression, "'TESTDIR' CRDIR")
 
-    def test_change_remote_dir_command(self) -> None:
-        command = RPLCommandBuilder.change_remote_dir("FLOWTEST")
-        self.assertEqual(command.name, "change_remote_dir")
-        self.assertEqual(command.expression, "'FLOWTEST' EVAL")
+    def test_create_remote_dir_command_for_nested_folder(self) -> None:
+        command = RPLCommandBuilder.create_remote_dir("/HOME/PARENT/CHILD")
+        self.assertEqual(command.expression, "'PARENT' EVAL 'CHILD' CRDIR")
+
+    def test_create_nested_remote_dir_command_for_absolute_nested_folder(self) -> None:
+        command = RPLCommandBuilder.create_nested_remote_dir("/HOME/PARENT/CHILD")
+        self.assertEqual(command.name, "create_nested_remote_dir")
+        self.assertEqual(command.expression, "HOME 'PARENT' CRDIR 'PARENT' EVAL 'CHILD' CRDIR")
 
 
 class CalculatorClientTests(unittest.TestCase):
@@ -50,5 +56,35 @@ class CalculatorClientTests(unittest.TestCase):
         self.assertEqual(session.files, [Path("a.T49"), Path("b.T49")])
 
 
-if __name__ == "__main__":
-    unittest.main()
+class CalculatorFileSystemTests(unittest.TestCase):
+    """Verify that the minimal filesystem helper stays above the session layer."""
+
+    def test_create_dir_uses_normalized_rpl_builder(self) -> None:
+        session = FakeSession()
+        client = CalculatorClient(session)
+        file_system = CalculatorFileSystem(client)
+
+        result = file_system.create_dir("/HOME/TESTDIR")
+
+        self.assertEqual(session.host_commands, ["'TESTDIR' CRDIR"])
+        self.assertEqual(result.command, "'TESTDIR' CRDIR")
+        self.assertEqual(result.path, "/HOME/TESTDIR")
+
+    def test_create_dir_rejects_root_only_path(self) -> None:
+        session = FakeSession()
+        client = CalculatorClient(session)
+        file_system = CalculatorFileSystem(client)
+
+        with self.assertRaises(ValueError):
+            file_system.create_dir("/")
+
+    def test_create_dir_uses_nested_builder_for_absolute_nested_path(self) -> None:
+        session = FakeSession()
+        client = CalculatorClient(session)
+        file_system = CalculatorFileSystem(client)
+
+        result = file_system.create_dir("/HOME/PARENT/CHILD")
+
+        self.assertEqual(session.host_commands, ["HOME 'PARENT' CRDIR 'PARENT' EVAL 'CHILD' CRDIR"])
+        self.assertEqual(result.command, "HOME 'PARENT' CRDIR 'PARENT' EVAL 'CHILD' CRDIR")
+        self.assertEqual(result.path, "/HOME/PARENT/CHILD")
